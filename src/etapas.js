@@ -1,6 +1,6 @@
 // Editor de sequência de mensagens (texto, imagem, vídeo, áudio, documento).
 // Usado nas respostas rápidas e nas campanhas.
-function EditorEtapas(container, etapasIniciais, aoMudar) {
+function EditorEtapas(container, etapasIniciais, aoMudar, opcoes = {}) {
   const LIMITE = 16 * 1024 * 1024;
   const ACEITA = { image: 'image/*', video: 'video/*', audio: 'audio/*,.ogg,.opus,.mp3,.m4a', document: '*/*' };
   const ICONE = { texto: '💬', image: '🖼️', video: '🎬', audio: '🎤', document: '📄' };
@@ -52,14 +52,21 @@ function EditorEtapas(container, etapasIniciais, aoMudar) {
 
   function desenhar() {
     container.innerHTML = `
-      <div class="etapas">${etapas.map(htmlEtapa).join('') || '<div class="dica">Nenhuma mensagem ainda. Adicione abaixo — pode juntar texto, áudio, vídeo e arquivos em sequência.</div>'}</div>
+      <div class="etapas">${etapas.map(htmlEtapa).join('') || '<div class="dica">Adicione abaixo o que vai ser enviado. Pode juntar texto, áudio, vídeo e arquivos em sequência.</div>'}</div>
       <div class="add-etapa" style="margin-top:10px">
-        <button type="button" class="sec" data-add="texto">+ Texto</button>
-        <button type="button" class="sec" data-add="audio">+ Áudio</button>
-        <button type="button" class="sec" data-add="image">+ Imagem</button>
-        <button type="button" class="sec" data-add="video">+ Vídeo</button>
-        <button type="button" class="sec" data-add="document">+ Documento</button>
+        <button type="button" class="sec peq" data-add="texto">💬 Texto</button>
+        <button type="button" class="sec peq" data-add="audio">🎤 Áudio</button>
+        <button type="button" class="sec peq" data-add="image">🖼️ Imagem</button>
+        <button type="button" class="sec peq" data-add="video">🎬 Vídeo</button>
+        <button type="button" class="sec peq" data-add="document">📄 Arquivo</button>
       </div>`;
+    if (opcoes.semPrevia) {
+      container.querySelectorAll('[data-preview]').forEach((el) => {
+        const e = etapas[Number(el.closest('[data-i]').dataset.i)];
+        el.textContent = ICONE[e.tipoMidia] || '📄';
+      });
+      return;
+    }
     container.querySelectorAll('[data-preview]').forEach(async (el) => {
       const i = Number(el.closest('[data-i]').dataset.i);
       const e = etapas[i];

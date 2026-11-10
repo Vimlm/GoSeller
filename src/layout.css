@@ -1,10 +1,12 @@
-/* Abre espaço no topo do WhatsApp Web para a barra do VendaFlow (40px). */
+/* Abre espaço para a interface do VendaFlow: barra no topo (52px), trilho à esquerda (60px)
+   e painel à direita (380px, só quando aberto). */
 html.vf-ativo #app {
   position: fixed !important;
-  top: 40px !important;
-  left: 0 !important;
-  right: 0 !important;
+  top: 52px !important;
+  left: 60px !important;
+  right: var(--vf-direita, 0px) !important;
   bottom: 0 !important;
   height: auto !important;
   width: auto !important;
+  transition: right .15s ease;
 }

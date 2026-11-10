@@ -41,14 +41,20 @@ chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === 'motor') cutucar();
 });
 
-function abrirPainel(secao) {
-  const url = chrome.runtime.getURL('painel/painel.html') + (secao ? '#' + secao : '');
-  chrome.tabs.create({ url });
+// Clique no ícone da extensão: vai para a aba do WhatsApp Web (ou abre uma) e mostra o painel
+async function abrirPainel(secao) {
+  const [aba] = await chrome.tabs.query({ url: WA });
+  if (!aba) {
+    await chrome.tabs.create({ url: 'https://web.whatsapp.com/' });
+    return;
+  }
+  await chrome.tabs.update(aba.id, { active: true });
+  await chrome.windows.update(aba.windowId, { focused: true }).catch(() => {});
+  chrome.tabs.sendMessage(aba.id, { tipo: 'abrirPainel', secao: secao || 'respostas' }).catch(() => {});
 }
 
 chrome.action.onClicked.addListener(() => abrirPainel(''));
 
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg && msg.tipo === 'abrirPainel') abrirPainel(msg.secao);
   if (msg && msg.tipo === 'cutucar') cutucar();
 });
