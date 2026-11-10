@@ -1937,18 +1937,19 @@
   setInterval(encaixarRaio, 1200);
 
   // ---- Cabeçalho da conversa: lápis ao lado do nome e botão de abas ao lado da etiqueta ----
-  const SVG_LAPIS = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>';
+  const SVG_LAPIS = '<svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>';
   const SVG_PASTA = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/></svg>';
   const nomeWABtn = document.createElement('span');
   nomeWABtn.id = 'vf-nome-wa';
   nomeWABtn.title = 'Mudar o nome deste contato (VendaFlow)';
-  nomeWABtn.style.cssText = 'display:inline-flex;align-items:center;gap:5px;margin-left:8px;height:26px;padding:0 7px;border-radius:13px;cursor:pointer;color:#8696a0;font-size:13px;font-weight:500;vertical-align:middle;flex:none;white-space:nowrap;';
+  nomeWABtn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;gap:0;margin:0 4px;width:34px;height:34px;padding:0;border-radius:50%;box-sizing:border-box;align-self:center;cursor:pointer;color:#8696a0;font-size:13px;font-weight:500;vertical-align:middle;flex:none;white-space:nowrap;';
   nomeWABtn.innerHTML = SVG_LAPIS + '<span></span>';
   const abasWABtn = document.createElement('span');
   abasWABtn.id = 'vf-abas-wa';
   abasWABtn.title = 'Colocar este contato em abas (VendaFlow)';
-  abasWABtn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;margin-right:8px;border-radius:18px;border:1.5px solid rgba(134,150,160,.45);cursor:pointer;color:inherit;font-size:14px;font-weight:500;flex:none;white-space:nowrap;box-sizing:border-box;';
-  abasWABtn.innerHTML = SVG_PASTA + '<span>Abas</span>';
+  // Só ícone (sem texto) para não espremer o nome do contato no cabeçalho
+  abasWABtn.style.cssText = 'position:relative;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;margin-right:6px;border-radius:50%;cursor:pointer;color:inherit;flex:none;box-sizing:border-box;';
+  abasWABtn.innerHTML = SVG_PASTA.replace(/18/g, '22') + '<span style="position:absolute;right:2px;bottom:4px;display:flex;gap:1px"></span>';
   for (const b of [nomeWABtn, abasWABtn]) {
     b.addEventListener('mouseenter', () => (b.style.background = 'rgba(134,150,160,.15)'));
     b.addEventListener('mouseleave', () => (b.style.background = ''));
@@ -1962,13 +1963,15 @@
   async function atualizarCabecalho() {
     const ids = await idsDoCabecalho();
     const meu = ids ? nomeDe(ids, '') : '';
-    nomeWABtn.lastChild.textContent = meu;
+    nomeWABtn.lastChild.textContent = '';
     nomeWABtn.style.color = meu ? '#21c063' : '#8696a0';
     nomeWABtn.title = meu ? `Nome no VendaFlow: ${meu} (clique para mudar)` : 'Mudar o nome deste contato (VendaFlow)';
     const minhas = ids ? abas.filter((a) => a.tipo !== 'etiqueta' && abaTem(a, ids)) : [];
-    abasWABtn.lastChild.innerHTML = minhas.length
-      ? minhas.slice(0, 3).map((a) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(a.cor)};margin-right:4px"></span>`).join('') + esc(minhas.length === 1 ? minhas[0].nome : minhas.length + ' abas')
-      : 'Abas';
+    abasWABtn.lastChild.innerHTML = minhas
+      .slice(0, 3)
+      .map((a) => `<span style="display:block;width:9px;height:9px;border-radius:50%;background:${esc(a.cor)};box-shadow:0 0 0 2px #111b21"></span>`)
+      .join('');
+    abasWABtn.title = minhas.length ? `Abas: ${minhas.map((a) => a.nome).join(', ')} (clique para mudar)` : 'Colocar este contato em abas (VendaFlow)';
   }
   const abrirNomeCab = async () => {
     const ids = await idsDoCabecalho();
@@ -2042,10 +2045,13 @@
       abasWABtn.remove();
       return;
     }
-    // Lápis logo depois do nome
-    if (!header.contains(nomeWABtn)) {
-      const titulo = header.querySelector('span[dir="auto"]');
-      if (titulo) titulo.after(nomeWABtn);
+    // Lápis logo depois do bloco do nome (fora da área que o WhatsApp usa para abrir os dados do contato)
+    const busca0 = header.querySelector(SELETORES_BUSCA);
+    const titulo = header.querySelector('span[dir="auto"]');
+    if (titulo) {
+      let bloco = titulo; // bloco do nome = maior ancestral do nome que não contém a lupa/botões
+      while (bloco.parentElement && bloco.parentElement !== header && !(busca0 && bloco.parentElement.contains(busca0)) && !bloco.parentElement.contains(abasWABtn)) bloco = bloco.parentElement;
+      if (nomeWABtn.previousElementSibling !== bloco) bloco.after(nomeWABtn);
     }
     // Botão de abas à esquerda da etiqueta (ou da lupa, se o contato não tiver etiqueta)
     const busca = header.querySelector(SELETORES_BUSCA);
