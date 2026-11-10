@@ -83,6 +83,7 @@
   // =====================================================================
   let abas = [];
   let respostas = [];
+  let scripts = []; // cadeias de respostas rápidas: { id, nome, atalho, itens: [{ respostaId, espera }] }
   let etiquetas = [];
   let abaSelecionada = 'todas';
 
@@ -159,6 +160,8 @@
     play: '<svg viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z"/></svg>',
     mais2: '<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
     lupa: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
+    lapis: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
+    lixo: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
   };
 
   // =====================================================================
@@ -200,7 +203,6 @@
       <div class="lat-corpo" id="corpo"></div>
       <div class="lat-rodape oculto" id="rodape"></div>
     </aside>
-    <button class="raio oculto" id="raio" title="Respostas rápidas">${IC.raio}</button>
     <div class="pop oculto" id="pop"></div>
     <div class="sugestoes oculto" id="sugestoes"></div>
     <div class="avisos" id="avisos"></div>`;
@@ -292,7 +294,6 @@
     if (b) abrirLateral(b.dataset.abrir);
   });
   $('#fechar').addEventListener('click', fecharLateral);
-  $('#raio').addEventListener('click', () => abrirLateral('respostas'));
 
   function rodape(html) {
     const r = $('#rodape');
@@ -306,6 +307,7 @@
     rodape('');
     const corpo = $('#corpo');
     corpo.onclick = corpo.onchange = corpo.oninput = null; // tira os ouvintes da tela anterior
+    corpo.ondragstart = corpo.ondragover = corpo.ondragend = null;
     try {
       await telas[secaoAtual](corpo);
     } catch (e) {
@@ -315,7 +317,7 @@
 
   // Telas com formulário não são redesenhadas sozinhas (para não apagar o que a pessoa está digitando)
   const telaComFormulario = () =>
-    (secaoAtual === 'respostas' && visao) || (secaoAtual === 'envio' && visao && (visao === 'nova' || visao.startsWith('duplicar:'))) || secaoAtual === 'config' || (secaoAtual === 'abas');
+    (secaoAtual === 'respostas' && visao) || (secaoAtual === 'envio' && visao && (visao === 'nova' || visao.startsWith('duplicar:'))) || secaoAtual === 'config' || (secaoAtual === 'abas' && visao);
 
   // =====================================================================
   // TELA: Contato aberto
@@ -405,10 +407,17 @@
     }
   }
 
+  const segmentoRespostas = () => `<div class="segmento">
+      <button data-seg="respostas" class="${estadoUI.seg !== 'scripts' ? 'ativo' : ''}">Respostas</button>
+      <button data-seg="scripts" class="${estadoUI.seg === 'scripts' ? 'ativo' : ''}">Scripts <span class="qtd">${scripts.length}</span></button></div>`;
+
   telas.respostas = async (corpo) => {
     if (visao && visao.startsWith('editar:')) return telaEditarResposta(corpo, visao.slice(7));
+    if (visao && visao.startsWith('script:')) return telaEditarScript(corpo, visao.slice(7));
+    if (estadoUI.seg === 'scripts') return telaScripts(corpo);
     const filtros = [['tudo', 'Tudo'], ['texto', 'Texto'], ['audio', 'Áudio'], ['image', 'Imagem'], ['video', 'Vídeo'], ['document', 'Arquivo'], ['usadas', 'Mais usadas']];
     corpo.innerHTML = `
+      ${segmentoRespostas()}
       <div class="busca"><label>${IC.lupa}<input id="busca" placeholder="Pesquisar resposta rápida" value="${esc(estadoUI.busca)}"></label>
         <button class="icone-btn" id="nova" title="Nova resposta" style="background:var(--verde);color:#fff">${IC.mais2}</button></div>
       <div class="chips">${filtros.map(([v, t]) => `<button class="chip ${estadoUI.filtroTipo === v ? 'ativo' : ''}" data-filtro="${v}">${t}</button>`).join('')}</div>
@@ -452,6 +461,10 @@
     corpo.onclick = (e) => {
       const alvo = e.target.closest('button');
       if (!alvo) return;
+      if (alvo.dataset.seg) {
+        estadoUI.seg = alvo.dataset.seg;
+        return desenharLateral();
+      }
       if (alvo.id === 'nova' || alvo.hasAttribute('data-nova')) return irPara('editar:nova');
       if (alvo.dataset.filtro) {
         estadoUI.filtroTipo = alvo.dataset.filtro;
@@ -507,9 +520,245 @@
     await VF.gravar('respostas', lista);
   }
   async function excluirResposta(r) {
-    if (!confirm(`Excluir a resposta "${r.nome}"?`)) return;
+    const usadaEm = scripts.filter((s) => s.itens.some((it) => it.respostaId === r.id));
+    const extra = usadaEm.length ? `\n\nEla também sai ${usadaEm.length > 1 ? 'dos scripts' : 'do script'}: ${usadaEm.map((s) => s.nome).join(', ')}.` : '';
+    if (!confirm(`Excluir a resposta "${r.nome}"?${extra}`)) return;
     await VF.gravar('respostas', (await VF.ler('respostas', [])).filter((x) => x.id !== r.id));
+    if (usadaEm.length) {
+      const lista = await VF.ler('scripts', []);
+      lista.forEach((s) => (s.itens = s.itens.filter((it) => it.respostaId !== r.id)));
+      await VF.gravar('scripts', lista);
+    }
     VF.limparMidiasOrfas();
+  }
+
+  // =====================================================================
+  // Scripts: uma cadeia de respostas rápidas enviada com um clique
+  // =====================================================================
+  const respostaPorId = (id) => respostas.find((x) => x.id === id);
+  const itensValidos = (s) => (s.itens || []).filter((it) => respostaPorId(it.respostaId));
+  function duracaoScript(s) {
+    const seg = itensValidos(s).reduce((t, it, j) => t + (j ? Number(it.espera) || 0 : 0) + respostaPorId(it.respostaId).etapas.reduce((a, e, k) => a + (k ? Number(e.espera ?? 2) : 0), 0), 0);
+    return seg < 60 ? `${seg}s` : `${Math.round(seg / 60)} min`;
+  }
+  const resumoScript = (s) => itensValidos(s).map((it) => respostaPorId(it.respostaId).nome).join(' → ');
+  // Junta as mensagens das respostas do script numa sequência só (usada no envio em massa)
+  const etapasDoScript = (s) =>
+    itensValidos(s).flatMap((it, j) =>
+      JSON.parse(JSON.stringify(respostaPorId(it.respostaId).etapas)).map((e, k) => (k === 0 && j > 0 ? { ...e, espera: Number(it.espera) || 0 } : e))
+    );
+
+  let scriptRodando = null;
+  async function usarScript(s) {
+    if (scriptRodando) return avisar(`Espere o script "${scriptRodando}" terminar.`);
+    const itens = itensValidos(s);
+    if (!itens.length) return avisar('Este script não tem respostas. Edite e adicione.', 'erro');
+    let chat;
+    try {
+      chat = await rpc('chatAtivo');
+    } catch (e) {
+      return avisar(e.message, 'erro');
+    }
+    if (!chat) return avisar('Abra uma conversa primeiro.');
+    const cfg = await VF.config();
+    const dados = { nome: chat.nome, vendedor: cfg.nomeVendedor };
+    scriptRodando = s.nome;
+    avisar(`▶ Enviando o script "${s.nome}" (${itens.length} respostas) para ${VF.primeiroNome(chat.nome) || 'o contato'}…`, 'info', 4000);
+    try {
+      for (let j = 0; j < itens.length; j++) {
+        if (j > 0) await VF.dormir(Math.max(0, Number(itens[j].espera) || 0) * 1000);
+        await enviarEtapas(chat.id, respostaPorId(itens[j].respostaId).etapas, dados, { digitacao: cfg.digitacaoNasRespostas });
+      }
+      avisar(`✓ Script "${s.nome}" enviado.`, 'ok');
+      const lista = await VF.ler('scripts', []);
+      const x = lista.find((y) => y.id === s.id);
+      if (x) {
+        x.usos = (x.usos || 0) + 1;
+        await VF.gravar('scripts', lista);
+      }
+    } catch (e) {
+      avisar('O script parou: ' + e.message, 'erro');
+    } finally {
+      scriptRodando = null;
+    }
+  }
+
+  function telaScripts(corpo) {
+    corpo.innerHTML = `
+      ${segmentoRespostas()}
+      <div class="dica" style="margin:4px 0 12px">Um script envia várias respostas rápidas em sequência, com um clique. Ex.: Olá → Prazer/MEC → Áudio explicativo.</div>
+      <button class="btn" id="novoScript" style="width:100%;margin-bottom:12px">${IC.mais2} Novo script</button>
+      ${
+        scripts.length
+          ? `<div class="categoria aberta" style="border-color:var(--borda)">${scripts
+              .map((s) => {
+                const aberta = estadoUI.previa.has(s.id);
+                const itens = itensValidos(s);
+                return `<div data-script="${esc(s.id)}"><div class="item">
+                  <span class="tipo">${IC.sequencia}</span>
+                  <span class="nome"><b style="font-weight:600">${esc(s.nome)}</b>${s.atalho ? `<code>/${esc(s.atalho)}</code>` : ''}
+                    <small class="dica" style="display:block">${itens.length} resposta${itens.length === 1 ? '' : 's'} · ~${duracaoScript(s)}</small></span>
+                  <button class="icone-btn" data-acao="mais" title="Mais opções">${IC.mais}</button>
+                  <button class="icone-btn" data-acao="ver" title="Ver a sequência">${IC.olho}</button>
+                  <button class="icone-btn enviar" data-acao="enviar" title="Enviar na conversa aberta">${IC.enviar}</button>
+                </div>${
+                  aberta
+                    ? `<div class="previa-resp">${itens
+                        .map((it, j) => `<div class="arq">${j ? `<small>⏱ ${Number(it.espera) || 0}s</small><br>` : ''}<b>${j + 1}.</b> ${esc(respostaPorId(it.respostaId).nome)}</div>`)
+                        .join('')}</div>`
+                    : ''
+                }</div>`;
+              })
+              .join('')}</div>`
+          : `<div class="vazio">Nenhum script ainda.</div>`
+      }
+      <div class="dica" style="margin-top:12px">💡 Scripts com atalho também aparecem quando você digita <code>/</code> na conversa.</div>`;
+    corpo.onclick = (e) => {
+      const alvo = e.target.closest('button');
+      if (!alvo) return;
+      if (alvo.dataset.seg) {
+        estadoUI.seg = alvo.dataset.seg;
+        return desenharLateral();
+      }
+      if (alvo.id === 'novoScript') return irPara('script:nova');
+      const s = scripts.find((x) => x.id === alvo.closest('[data-script]')?.dataset.script);
+      if (!s) return;
+      if (alvo.dataset.acao === 'enviar') return usarScript(s);
+      if (alvo.dataset.acao === 'ver') {
+        estadoUI.previa.has(s.id) ? estadoUI.previa.delete(s.id) : estadoUI.previa.add(s.id);
+        return telaScripts(corpo);
+      }
+      if (alvo.dataset.acao === 'mais') {
+        abrirPop(alvo, [
+          { texto: '✏️ Editar', acao: () => irPara('script:' + s.id) },
+          {
+            texto: '📄 Duplicar',
+            acao: async () => {
+              const lista = await VF.ler('scripts', []);
+              lista.push({ ...JSON.parse(JSON.stringify(s)), id: VF.novoId(), nome: s.nome + ' (cópia)', atalho: '', usos: 0 });
+              await VF.gravar('scripts', lista);
+            },
+          },
+          {
+            texto: '🗑️ Excluir',
+            perigo: true,
+            acao: async () => {
+              if (!confirm(`Excluir o script "${s.nome}"? As respostas rápidas continuam salvas.`)) return;
+              await VF.gravar('scripts', (await VF.ler('scripts', [])).filter((x) => x.id !== s.id));
+            },
+          },
+        ]);
+      }
+    };
+  }
+
+  function telaEditarScript(corpo, id) {
+    const orig = scripts.find((x) => x.id === id);
+    const s = orig ? JSON.parse(JSON.stringify(orig)) : { id: VF.novoId(), nome: '', atalho: '', itens: [] };
+    if (!s.itens.length) s.itens.push({ respostaId: '', espera: 0 });
+    const pastas = {};
+    respostas.forEach((r) => (pastas[r.pasta || 'Sem categoria'] ||= []).push(r));
+    const opcoes = (sel) =>
+      `<option value="">Escolha a resposta…</option>` +
+      Object.keys(pastas)
+        .sort((a, b) => a.localeCompare(b, 'pt-BR'))
+        .map((p) => `<optgroup label="${esc(p)}">${pastas[p].map((r) => `<option value="${esc(r.id)}" ${r.id === sel ? 'selected' : ''}>${esc(r.nome)}</option>`).join('')}</optgroup>`)
+        .join('');
+    const nomeAtual = () => corpo.querySelector('#nomeScript')?.value ?? s.nome;
+    const atalhoAtual = () => corpo.querySelector('#atalhoScript')?.value ?? s.atalho;
+    function desenhar() {
+      const nome = nomeAtual();
+      const atalho = atalhoAtual();
+      corpo.innerHTML = `
+        <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>${orig ? 'Editar script' : 'Novo script'}</h2></div>
+        <div class="duas">
+          <label class="campo">Nome<input type="text" id="nomeScript" value="${esc(nome)}" placeholder="Ex.: Abertura técnico"></label>
+          <label class="campo">Atalho<input type="text" id="atalhoScript" value="${esc(atalho || '')}" placeholder="abertura"></label>
+        </div>
+        <div class="secao-t">Respostas, na ordem de envio</div>
+        ${
+          respostas.length
+            ? s.itens
+                .map(
+                  (it, j) => `${
+                    j > 0
+                      ? `<div class="espera-script">⏱ esperar <input type="number" min="0" max="600" data-espera="${j}" value="${Number(it.espera) || 0}"> segundos</div>`
+                      : ''
+                  }<div class="item-script" data-j="${j}">
+                    <span class="passo">${j + 1}</span>
+                    <select data-resp="${j}">${opcoes(it.respostaId)}</select>
+                    <button type="button" class="icone-btn" data-mover="-1" ${j === 0 ? 'disabled' : ''} title="Subir" style="transform:rotate(180deg)">${IC.seta}</button>
+                    <button type="button" class="icone-btn" data-mover="1" ${j === s.itens.length - 1 ? 'disabled' : ''} title="Descer">${IC.seta}</button>
+                    <button type="button" class="icone-btn" data-tirar title="Tirar">${IC.fechar}</button>
+                  </div>`
+                )
+                .join('') + `<button type="button" class="btn sec" id="addItem" style="width:100%;margin-top:10px">${IC.mais2} Adicionar resposta</button>`
+            : '<div class="alerta">Crie primeiro as respostas rápidas (aba Respostas). Depois junte elas aqui.</div>'
+        }
+        <div class="dica" style="margin-top:10px">Cada resposta é enviada inteira (com os textos, áudios e arquivos dela). A espera conta a partir do fim da resposta anterior.</div>`;
+    }
+    desenhar();
+    rodape(`<button class="btn sec" id="teste">Testar em mim</button><button class="btn" id="salvar">Salvar</button>`);
+    corpo.onchange = corpo.oninput = (e) => {
+      const t = e.target;
+      if (t.dataset.resp !== undefined) s.itens[Number(t.dataset.resp)].respostaId = t.value;
+      if (t.dataset.espera !== undefined) s.itens[Number(t.dataset.espera)].espera = Math.max(0, Number(t.value) || 0);
+    };
+    corpo.onclick = (e) => {
+      if (e.target.closest('#voltar')) return irPara(null);
+      if (e.target.closest('#addItem')) {
+        s.itens.push({ respostaId: '', espera: 3 });
+        desenhar();
+        corpo.querySelector(`[data-resp="${s.itens.length - 1}"]`)?.focus();
+        return;
+      }
+      const caixa = e.target.closest('[data-j]');
+      if (!caixa) return;
+      const j = Number(caixa.dataset.j);
+      const mover = e.target.closest('[data-mover]');
+      if (mover) {
+        const k = j + Number(mover.dataset.mover);
+        [s.itens[j], s.itens[k]] = [s.itens[k], s.itens[j]];
+        desenhar();
+      } else if (e.target.closest('[data-tirar]')) {
+        s.itens.splice(j, 1);
+        if (!s.itens.length) s.itens.push({ respostaId: '', espera: 0 });
+        desenhar();
+      }
+    };
+    const pronto = () => {
+      const itens = s.itens.filter((it) => it.respostaId);
+      if (!itens.length) return avisar('Escolha pelo menos uma resposta.', 'erro'), null;
+      return itens;
+    };
+    $('#teste').onclick = async () => {
+      const itens = pronto();
+      if (!itens) return;
+      try {
+        await enviarParaMim(etapasDoScript({ itens }));
+        avisar('Script enviado para o seu próprio número. Confira em "Mensagens para mim".', 'ok');
+      } catch (er) {
+        avisar(er.message, 'erro');
+      }
+    };
+    $('#salvar').onclick = async () => {
+      const nome = nomeAtual().trim();
+      const atalho = atalhoAtual().trim().replace(/^\//, '').replace(/\s+/g, '-').toLowerCase();
+      if (!nome) return avisar('Dê um nome para o script.', 'erro');
+      const itens = pronto();
+      if (!itens) return;
+      const lista = await VF.ler('scripts', []);
+      if (atalho && (lista.some((x) => x.atalho === atalho && x.id !== s.id) || respostas.some((x) => x.atalho === atalho)))
+        return avisar(`O atalho /${atalho} já está em uso.`, 'erro');
+      const novo = { ...s, nome, atalho, itens };
+      const i = lista.findIndex((x) => x.id === s.id);
+      if (i >= 0) lista[i] = novo;
+      else lista.push(novo);
+      await VF.gravar('scripts', lista);
+      scripts = lista;
+      avisar('Script salvo.', 'ok');
+      irPara(null);
+    };
   }
 
   function telaEditarResposta(corpo, id) {
@@ -546,7 +795,8 @@
       if (erro) return avisar(erro, 'erro');
       if (!editor.valor().length) return avisar('Adicione pelo menos uma mensagem.', 'erro');
       const lista = await VF.ler('respostas', []);
-      if (atalho && lista.some((x) => x.atalho === atalho && x.id !== r.id)) return avisar(`Já existe uma resposta com o atalho /${atalho}.`, 'erro');
+      if (atalho && (lista.some((x) => x.atalho === atalho && x.id !== r.id) || scripts.some((x) => x.atalho === atalho)))
+        return avisar(`O atalho /${atalho} já está em uso.`, 'erro');
       const nova = { ...r, nome, atalho, pasta: corpo.querySelector('#pasta').value.trim(), etapas: editor.valor() };
       const i = lista.findIndex((x) => x.id === r.id);
       if (i >= 0) lista[i] = nova;
@@ -738,7 +988,7 @@
       </div>
 
       <div class="cartao"><h3><span class="passo">2</span>O que enviar?</h3>
-        <select id="usarResp" style="margin-bottom:10px"><option value="">✍️ Escrever aqui</option>${respostas.map((r) => `<option value="${esc(r.id)}">⚡ ${esc((r.pasta ? r.pasta + ' › ' : '') + r.nome)}</option>`).join('')}</select>
+        <select id="usarResp" style="margin-bottom:10px"><option value="">✍️ Escrever aqui</option>${scripts.length ? `<optgroup label="Scripts">${scripts.map((s) => `<option value="s:${esc(s.id)}">🔗 ${esc(s.nome)}</option>`).join('')}</optgroup>` : ''}<optgroup label="Respostas rápidas">${respostas.map((r) => `<option value="${esc(r.id)}">⚡ ${esc((r.pasta ? r.pasta + ' › ' : '') + r.nome)}</option>`).join('')}</optgroup></select>
         <div id="etapas"></div>
         <div class="dica" style="margin-top:8px">Dica: <code>{Oi|Olá|E aí}</code> sorteia uma opção para cada lead e <code>{primeiro_nome}</code> coloca o nome. Isso ajuda a evitar bloqueio.</div>
       </div>
@@ -880,7 +1130,10 @@
       atualizarPublico();
     };
     q('#usarResp').onchange = (e) => {
-      const r = respostas.find((x) => x.id === e.target.value);
+      const v = e.target.value;
+      const s = v.startsWith('s:') && scripts.find((x) => x.id === v.slice(2));
+      if (s) return editor.definir(etapasDoScript(s));
+      const r = respostas.find((x) => x.id === v);
       if (r) editor.definir(r.etapas);
     };
     q('#voltar').onclick = () => irPara(null);
@@ -941,79 +1194,183 @@
   // =====================================================================
   // TELA: Abas
   // =====================================================================
-  const CORES = ['#25d366', '#34b7f1', '#f5a623', '#e91e63', '#9c27b0', '#ff5722', '#607d8b', '#00bfa5'];
+  const CORES = ['#25d366', '#00bfa5', '#34b7f1', '#3f51b5', '#9c27b0', '#e91e63', '#ff5722', '#f5a623', '#8bc34a', '#607d8b'];
+
+  function descricaoAba(a) {
+    if (a.tipo === 'etiqueta') {
+      const et = etiquetas.find((x) => x.id === String(a.etiquetaId));
+      return et ? `Quem tem a etiqueta "${et.nome}" · ${et.total}` : 'Etiqueta não escolhida';
+    }
+    const n = (a.chats || []).length;
+    return n ? `${n} lead${n > 1 ? 's' : ''} escolhido${n > 1 ? 's' : ''} por você` : 'Vazia: abra uma conversa e marque a aba no ícone 👤';
+  }
+
+  async function salvarAba(nova) {
+    const lista = await VF.ler('abas', []);
+    const i = lista.findIndex((x) => x.id === nova.id);
+    if (i >= 0) lista[i] = nova;
+    else lista.push(nova);
+    await VF.gravar('abas', lista);
+    abas = lista;
+    desenharPilulas();
+  }
+
+  async function excluirAba(a) {
+    if (!confirm(`Excluir a aba "${a.nome}"?\n\nOs leads e as conversas continuam no WhatsApp, só a aba some.`)) return false;
+    abas = (await VF.ler('abas', [])).filter((x) => x.id !== a.id);
+    await VF.gravar('abas', abas);
+    if (abaSelecionada === a.id) selecionarAba('todas');
+    desenharPilulas();
+    if (secaoAtual === 'abas' && !visao) desenharLateral();
+    return true;
+  }
+
+  async function renomearAba(a) {
+    const nome = (prompt('Novo nome da aba:', a.nome) || '').trim();
+    if (nome && nome !== a.nome) await salvarAba({ ...a, nome });
+  }
 
   telas.abas = async (corpo) => {
+    if (visao) return telaEditarAba(corpo, visao === 'nova' ? null : visao.slice(7));
     corpo.innerHTML = `
       <div class="lat-titulo"><h2>Abas</h2><button class="btn peq" id="nova">${IC.mais2} Nova aba</button></div>
-      <div class="dica" style="margin-bottom:10px">As abas aparecem no topo e filtram a lista de conversas.
-        <b>Manual</b>: você coloca o lead (ícone 👤 com a conversa aberta). <b>Etiqueta</b>: mostra quem tem a etiqueta.</div>
+      <div class="dica" style="margin-bottom:12px">As abas ficam na barra de cima e separam as conversas. Arraste pela alça <b>⋮⋮</b> para mudar a ordem.
+        Atalho: clique com o <b>botão direito</b> numa aba lá em cima para renomear, mudar a cor ou excluir.</div>
       ${
         abas.length
-          ? abas
+          ? `<div class="abas-lista">${abas
               .map(
-                (a, i) => `<div class="cartao" data-id="${esc(a.id)}">
-            <div class="linha-aba" style="border:0;padding:0">
-              <input type="color" data-campo="cor" value="${esc(a.cor || '#25d366')}">
-              <input type="text" data-campo="nome" value="${esc(a.nome)}">
-              <button class="icone-btn" data-mover="-1" ${i === 0 ? 'disabled' : ''} title="Para a esquerda" style="transform:rotate(90deg)">${IC.seta}</button>
-              <button class="icone-btn" data-mover="1" ${i === abas.length - 1 ? 'disabled' : ''} title="Para a direita" style="transform:rotate(-90deg)">${IC.seta}</button>
-              <button class="icone-btn" data-del title="Excluir">${IC.fechar}</button>
-            </div>
-            <div class="duas" style="margin-top:8px">
-              <select data-campo="tipo"><option value="manual" ${a.tipo !== 'etiqueta' ? 'selected' : ''}>Manual</option><option value="etiqueta" ${a.tipo === 'etiqueta' ? 'selected' : ''}>Etiqueta</option></select>
-              ${
-                a.tipo === 'etiqueta'
-                  ? `<select data-campo="etiquetaId"><option value="">Escolha…</option>${etiquetas.map((e) => `<option value="${esc(e.id)}" ${String(a.etiquetaId) === e.id ? 'selected' : ''}>${esc(e.nome)}</option>`).join('')}</select>`
-                  : `<span class="dica" style="align-self:center">${(a.chats || []).length} lead(s)</span>`
-              }
-            </div>
-            ${
-              a.tipo !== 'etiqueta' && (a.chats || []).length
-                ? `<details><summary>Ver leads</summary>${a.chats
-                    .map((c, j) => `<div class="contato-linha"><div class="cresce">${esc(c.nome || VF.numeroDoId(c.ids.find((x) => x.endsWith('@c.us'))) || c.ids[0])}</div><button class="link" data-tirar="${j}">tirar</button></div>`)
-                    .join('')}</details>`
-                : ''
-            }</div>`
+                (a) => `<div class="aba-linha" draggable="true" data-id="${esc(a.id)}">
+              <span class="alca" title="Arraste para mudar a ordem">⋮⋮</span>
+              <span class="bolinha" style="background:${esc(a.cor || '#25d366')}"></span>
+              <div class="cresce"><div class="aba-nome">${esc(a.nome)}</div><div class="dica">${esc(descricaoAba(a))}</div></div>
+              <button class="icone-btn" data-acao="renomear" title="Renomear">${IC.lapis}</button>
+              <button class="icone-btn" data-acao="excluir" title="Excluir aba">${IC.lixo}</button>
+            </div>`
               )
-              .join('')
-          : '<div class="vazio">Nenhuma aba ainda.</div>'
+              .join('')}</div>`
+          : `<div class="vazio">Nenhuma aba ainda.<br>Crie abas para separar os leads, por exemplo "Leads Enfermagem" ou "Matrícula feita".</div>`
       }`;
-    const salvar = async () => VF.gravar('abas', abas);
-    corpo.onchange = async (e) => {
-      const caixa = e.target.closest('[data-id]');
-      const campo = e.target.dataset.campo;
-      if (!caixa || !campo) return;
-      const a = abas.find((x) => x.id === caixa.dataset.id);
-      a[campo] = e.target.value;
-      await salvar();
-      if (campo === 'tipo') desenharLateral();
-    };
     corpo.onclick = async (e) => {
-      if (e.target.closest('#nova')) {
-        abas.push({ id: VF.novoId(), nome: 'Nova aba', cor: CORES[abas.length % CORES.length], tipo: 'manual', chats: [] });
-        await salvar();
-        await desenharLateral();
-        const campos = corpo.querySelectorAll('input[data-campo=nome]');
-        campos[campos.length - 1]?.select();
-        return;
-      }
-      const caixa = e.target.closest('[data-id]');
-      if (!caixa) return;
-      const i = abas.findIndex((x) => x.id === caixa.dataset.id);
-      if (e.target.closest('[data-del]')) {
-        if (!confirm(`Excluir a aba "${abas[i].nome}"? Os leads continuam no WhatsApp.`)) return;
-        abas.splice(i, 1);
-      } else if (e.target.closest('[data-mover]')) {
-        const j = i + Number(e.target.closest('[data-mover]').dataset.mover);
-        [abas[i], abas[j]] = [abas[j], abas[i]];
-      } else if (e.target.closest('[data-tirar]')) {
-        abas[i].chats.splice(Number(e.target.closest('[data-tirar]').dataset.tirar), 1);
-      } else return;
-      await salvar();
-      desenharLateral();
+      if (e.target.closest('#nova')) return irPara('nova');
+      const linha = e.target.closest('[data-id]');
+      if (!linha) return;
+      const a = abas.find((x) => x.id === linha.dataset.id);
+      if (!a) return;
+      const acao = e.target.closest('[data-acao]')?.dataset.acao;
+      if (acao === 'excluir') return excluirAba(a);
+      if (acao === 'renomear') return renomearAba(a).then(() => desenharLateral());
+      irPara('editar:' + a.id);
+    };
+    // Arrastar para reordenar
+    let arrastada = null;
+    corpo.ondragstart = (e) => {
+      const l = e.target.closest('.aba-linha');
+      if (!l) return;
+      arrastada = l;
+      l.classList.add('arrastando');
+      e.dataTransfer.effectAllowed = 'move';
+    };
+    corpo.ondragover = (e) => {
+      const l = e.target.closest('.aba-linha');
+      if (!l || !arrastada) return;
+      e.preventDefault();
+      if (l === arrastada) return;
+      const r = l.getBoundingClientRect();
+      l.parentElement.insertBefore(arrastada, e.clientY < r.top + r.height / 2 ? l : l.nextSibling);
+    };
+    corpo.ondragend = async () => {
+      if (!arrastada) return;
+      arrastada.classList.remove('arrastando');
+      arrastada = null;
+      const ordem = [...corpo.querySelectorAll('.aba-linha')].map((x) => x.dataset.id);
+      const lista = await VF.ler('abas', []);
+      abas = ordem.map((id) => lista.find((a) => a.id === id)).filter(Boolean).concat(lista.filter((a) => !ordem.includes(a.id)));
+      await VF.gravar('abas', abas);
+      desenharPilulas();
     };
   };
+
+  function telaEditarAba(corpo, id) {
+    const orig = id ? abas.find((x) => x.id === id) : null;
+    if (id && !orig) return irPara(null);
+    const a = orig ? JSON.parse(JSON.stringify(orig)) : { id: VF.novoId(), nome: '', cor: CORES[abas.length % CORES.length], tipo: 'manual', chats: [] };
+    function desenhar() {
+      const nome = corpo.querySelector('#nomeAba')?.value ?? a.nome;
+      const livre = !CORES.includes(a.cor);
+      corpo.innerHTML = `
+        <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>${orig ? 'Editar aba' : 'Nova aba'}</h2></div>
+        <label class="campo">Nome da aba<input type="text" id="nomeAba" maxlength="40" value="${esc(nome)}" placeholder="Ex.: Leads Enfermagem"></label>
+        <div class="campo">Cor
+          <div class="cores">${CORES.map((c) => `<button type="button" class="cor-op ${c === a.cor ? 'sel' : ''}" data-cor="${c}" style="background:${c}"></button>`).join('')}
+            <label class="cor-op livre ${livre ? 'sel' : ''}" title="Outra cor" style="${livre ? 'background:' + esc(a.cor) : ''}">${livre ? '' : '+'}<input type="color" id="corLivre" value="${esc(a.cor)}"></label></div>
+          <div class="previa-pilula"><span class="pilula ativa" style="border-color:${esc(a.cor)}"><span class="cor" style="background:${esc(a.cor)}"></span>${esc(nome || 'Nome da aba')}</span></div>
+        </div>
+        <div class="campo">Quais conversas aparecem nesta aba?
+          <label class="opcao ${a.tipo !== 'etiqueta' ? 'sel' : ''}"><input type="radio" name="tipo" value="manual" ${a.tipo !== 'etiqueta' ? 'checked' : ''}>
+            <div><b>As que eu escolher</b><small>Com a conversa aberta, clique no ícone 👤 e marque esta aba.</small></div></label>
+          <label class="opcao ${a.tipo === 'etiqueta' ? 'sel' : ''}"><input type="radio" name="tipo" value="etiqueta" ${a.tipo === 'etiqueta' ? 'checked' : ''}>
+            <div><b>As que têm uma etiqueta do WhatsApp</b><small>A aba se atualiza sozinha quando você etiqueta alguém.</small></div></label>
+        </div>
+        ${
+          a.tipo === 'etiqueta'
+            ? `<label class="campo">Etiqueta<select id="etqAba"><option value="">Escolha a etiqueta…</option>${etiquetas
+                .map((t) => `<option value="${esc(t.id)}" ${String(a.etiquetaId) === t.id ? 'selected' : ''}>${esc(t.nome)} (${t.total})</option>`)
+                .join('')}</select></label>`
+            : (a.chats || []).length
+              ? `<div class="secao-t">Leads nesta aba (${a.chats.length})</div>${a.chats
+                  .map((c, j) => `<div class="contato-linha"><div class="cresce"><div>${esc(c.nome || VF.numeroDoId(c.ids.find((x) => x.endsWith('@c.us'))) || c.ids[0])}</div></div><button class="link" data-tirar="${j}">tirar</button></div>`)
+                  .join('')}`
+              : ''
+        }`;
+    }
+    desenhar();
+    rodape(`${orig ? `<button class="btn perigo" id="excluirAba">Excluir aba</button>` : ''}<button class="btn" id="salvarAba">Salvar</button>`);
+    corpo.oninput = (e) => {
+      if (e.target.id === 'nomeAba') {
+        const p = corpo.querySelector('.previa-pilula .pilula');
+        p.lastChild.textContent = e.target.value || 'Nome da aba';
+      }
+      if (e.target.id === 'corLivre') {
+        a.cor = e.target.value;
+        const p = corpo.querySelector('.previa-pilula .pilula');
+        p.style.borderColor = a.cor;
+        p.querySelector('.cor').style.background = a.cor;
+      }
+    };
+    corpo.onchange = (e) => {
+      if (e.target.name === 'tipo') {
+        a.tipo = e.target.value;
+        desenhar();
+      }
+      if (e.target.id === 'etqAba') a.etiquetaId = e.target.value;
+      if (e.target.id === 'corLivre') desenhar();
+    };
+    corpo.onclick = (e) => {
+      if (e.target.closest('#voltar')) return irPara(null);
+      const c = e.target.closest('[data-cor]');
+      if (c) {
+        a.cor = c.dataset.cor;
+        return desenhar();
+      }
+      const t = e.target.closest('[data-tirar]');
+      if (t) {
+        a.chats.splice(Number(t.dataset.tirar), 1);
+        desenhar();
+      }
+    };
+    if (orig) $('#excluirAba').onclick = async () => (await excluirAba(orig)) && irPara(null);
+    $('#salvarAba').onclick = async () => {
+      a.nome = corpo.querySelector('#nomeAba').value.trim();
+      if (!a.nome) return avisar('Dê um nome para a aba.', 'erro');
+      if (a.tipo === 'etiqueta' && !a.etiquetaId) return avisar('Escolha a etiqueta.', 'erro');
+      await salvarAba(a);
+      if (abaSelecionada === a.id) selecionarAba(a.id);
+      avisar(orig ? 'Aba salva.' : `Aba "${a.nome}" criada.${a.tipo === 'etiqueta' ? '' : ' Abra uma conversa e marque a aba no ícone 👤.'}`, 'ok');
+      irPara(null);
+    };
+    if (!orig) corpo.querySelector('#nomeAba').focus();
+  }
 
   // =====================================================================
   // TELA: Não perturbe
@@ -1164,27 +1521,63 @@
     }
   }, { passive: false });
 
-  $('#novaAba').addEventListener('click', async () => {
-    const nome = (prompt('Nome da nova aba (ex.: Campanha Técnico Enfermagem, Matrícula Realizada):') || '').trim();
-    if (!nome) return;
-    const lista = await VF.ler('abas', []);
-    lista.push({ id: VF.novoId(), nome, cor: CORES[lista.length % CORES.length], tipo: 'manual', chats: [] });
-    await VF.gravar('abas', lista);
-    avisar(`Aba "${nome}" criada. Abra uma conversa e marque a aba no ícone 👤 Contato.`, 'ok');
+  // Botão direito numa aba do topo: renomear, cor, excluir
+  $('#pilulas').addEventListener('contextmenu', (e) => {
+    const b = e.target.closest('[data-aba]');
+    if (!b || b.dataset.aba === 'todas') return;
+    e.preventDefault();
+    const a = abas.find((x) => x.id === b.dataset.aba);
+    if (!a) return;
+    abrirPop(b, [
+      { texto: '✏️ Renomear', acao: () => renomearAba(a) },
+      { texto: '🎨 Mudar cor e conteúdo', acao: () => abrirLateral('abas', 'editar:' + a.id) },
+      { texto: '🗑️ Excluir aba', perigo: true, acao: () => excluirAba(a) },
+    ]);
+  });
+  $('#pilulas').addEventListener('dblclick', (e) => {
+    const b = e.target.closest('[data-aba]');
+    const a = b && abas.find((x) => x.id === b.dataset.aba);
+    if (a) renomearAba(a);
   });
 
-  // ---- Botão ⚡ ao lado do campo de mensagem ----
-  function posicionarRaio() {
+  $('#novaAba').addEventListener('click', () => abrirLateral('abas', 'nova'));
+
+  // ---- Botão ⚡ dentro da barra de digitar, ao lado do microfone ----
+  // Fica dentro do próprio WhatsApp (não flutua), então não pula de lugar.
+  // Só confere de vez em quando se ainda está lá (sem medir a tela, que é o que pesa).
+  const raioWA = document.createElement('div');
+  raioWA.id = 'vf-raio';
+  raioWA.title = 'Respostas rápidas (VendaFlow)';
+  raioWA.setAttribute('role', 'button');
+  raioWA.innerHTML = IC.raio;
+  Object.assign(raioWA.style, {
+    width: '34px', height: '34px', minWidth: '34px', borderRadius: '50%', background: '#00a884', color: '#fff',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', margin: '0 4px', padding: '0', boxSizing: 'border-box', flex: 'none', alignSelf: 'center',
+  });
+  Object.assign(raioWA.firstElementChild.style, { width: '18px', height: '18px', fill: '#fff' });
+  raioWA.addEventListener('mousedown', (e) => e.preventDefault()); // não tira o cursor do campo de mensagem
+  raioWA.addEventListener('click', (e) => {
+    e.stopPropagation();
+    abrirLateral('respostas');
+  });
+  const SELETORES_MIC = [
+    '[data-icon="mic-outlined"]', '[data-icon="ptt"]', '[data-icon="wds-ic-mic"]', '[data-icon="ic-mic"]', '[data-icon="audio-send"]',
+    '[data-icon="send"]', '[data-icon="wds-ic-send-filled"]', '[data-icon="ic-send"]',
+    'button[aria-label="Mensagem de voz"]', 'button[aria-label="Voice message"]', 'button[aria-label="Enviar"]', 'button[aria-label="Send"]',
+  ].join(',');
+  function encaixarRaio() {
     const footer = document.querySelector('#main footer');
-    const b = $('#raio');
-    if (!footer) return b.classList.add('oculto');
-    const r = footer.getBoundingClientRect();
-    if (!r.width) return b.classList.add('oculto');
-    b.classList.remove('oculto');
-    b.style.left = r.left + 14 + 'px';
-    b.style.top = r.top - 56 + 'px';
+    if (!footer) return;
+    if (raioWA.isConnected && footer.contains(raioWA)) return;
+    const icones = footer.querySelectorAll(SELETORES_MIC);
+    const icone = icones[icones.length - 1];
+    if (!icone) return;
+    // Sobe até o bloco do botão (o pai que tem mais de um filho é a fileira da barra)
+    let bloco = icone.closest('button,[role="button"]') || icone;
+    while (bloco.parentElement && bloco.parentElement !== footer && bloco.parentElement.childElementCount === 1) bloco = bloco.parentElement;
+    if (bloco.parentElement) bloco.parentElement.insertBefore(raioWA, bloco);
   }
-  setInterval(posicionarRaio, 700);
+  setInterval(encaixarRaio, 1200);
 
   // ---- Atalho "/" no campo de mensagem ----
   let sugestoes = [];
@@ -1201,7 +1594,10 @@
     if (!sugestoes.length) return fecharSugestoes();
     caixa.innerHTML =
       sugestoes
-        .map((r, i) => `<div class="sug ${i === sugIndice ? 'sel' : ''}" data-i="${i}"><code>/${esc(r.atalho || '')}</code> <b>${esc(r.nome)}</b><span>${esc(resumoResposta(r)).slice(0, 80)}</span></div>`)
+        .map(
+          (r, i) =>
+            `<div class="sug ${i === sugIndice ? 'sel' : ''}" data-i="${i}"><code>/${esc(r.atalho || '')}</code> <b>${r._script ? '🔗 ' : ''}${esc(r.nome)}</b><span>${esc(r._script ? resumoScript(r) : resumoResposta(r)).slice(0, 80)}</span></div>`
+        )
         .join('') + '<div class="sug-dica">↑↓ escolher · Enter enviar · Tab colar · Esc fechar</div>';
     const r = campo.getBoundingClientRect();
     caixa.style.left = r.left + 'px';
@@ -1214,11 +1610,13 @@
     (e) => {
       const campo = campoDeMensagem(e.target);
       if (!campo) return;
-      const t = (campo.innerText || '').replace(/\n$/, '');
+      // textContent não obriga o navegador a recalcular a tela (innerText obriga, a cada tecla)
+      const t = (campo.textContent || '').trim();
+      if (t[0] !== '/') return sugestoes.length && fecharSugestoes();
       const m = t.match(/^\/(\S*)$/);
       if (!m) return fecharSugestoes();
       const f = VF.semAcento(m[1].toLowerCase());
-      sugestoes = respostas
+      sugestoes = [...scripts.filter((s) => s.atalho).map((s) => ({ ...s, _script: true })), ...respostas]
         .filter((r) => VF.semAcento(((r.atalho || '') + ' ' + r.nome).toLowerCase()).includes(f))
         .sort((a, b) => (VF.semAcento((b.atalho || '').toLowerCase()).startsWith(f) ? 1 : 0) - (VF.semAcento((a.atalho || '').toLowerCase()).startsWith(f) ? 1 : 0))
         .slice(0, 8);
@@ -1234,6 +1632,7 @@
     try {
       await rpc('colarTexto', '');
     } catch (e) { /* segue */ }
+    if (r._script) return usarScript(r);
     usarResposta(r, modo === 'colar' && temSoTexto(r) ? 'colar' : 'enviar');
   }
   window.addEventListener(
@@ -1284,17 +1683,25 @@
     }
     return s.texto;
   }
+  // Só mexe na tela quando o texto muda (antes reescrevia o botão toda hora)
+  let ultimoStatus = '';
   function atualizarStatus() {
+    const classe = 'status-envio ' + (statusAtual.tipo || 'parado');
+    const texto = statusAtual.tipo === 'parado' ? 'Envio em massa' : textoStatus();
+    if (classe + texto === ultimoStatus) return;
+    ultimoStatus = classe + texto;
     const b = $('#statusEnvio');
-    b.className = 'status-envio ' + (statusAtual.tipo || 'parado');
-    b.querySelector('span').textContent = statusAtual.tipo === 'parado' ? 'Envio em massa' : textoStatus();
+    b.className = classe;
+    b.querySelector('span').textContent = texto;
   }
-  setInterval(atualizarStatus, 1000);
+  setInterval(() => statusAtual.tipo !== 'parado' && document.visibilityState === 'visible' && atualizarStatus(), 1000);
   $('#statusEnvio').addEventListener('click', () => {
     abrirLateral('envio', statusAtual.campanhaId && statusAtual.tipo !== 'parado' ? 'campanha:' + statusAtual.campanhaId : null);
   });
 
   async function gravarStatus(s) {
+    // Não grava de novo o mesmo status (cada gravação acorda todas as abas)
+    if (s.texto === statusAtual.texto && s.tipo === statusAtual.tipo && (s.proximoEm || 0) === (statusAtual.proximoEm || 0)) return;
     statusAtual = { ...s, atualizado: Date.now() };
     await VF.gravar('motorStatus', statusAtual);
     atualizarStatus();
@@ -1317,12 +1724,22 @@
     return c;
   }
 
+  // Sem campanha ativa, o motor não lê nada (antes lia todas as campanhas a cada 15s).
+  // Volta a olhar quando alguma campanha muda.
+  let haCampanhaAtiva = null;
+  let idsAguardando = null; // contatos que receberam campanha e ainda não responderam
+  function campanhasMudaram() {
+    haCampanhaAtiva = null;
+    idsAguardando = null;
+  }
+
   async function passoDoMotor() {
-    if (ocupado) return;
+    if (ocupado || haCampanhaAtiva === false) return;
     ocupado = true;
     try {
       const campanhas = await lerCampanhas();
       const campanha = campanhas.find((c) => c.status === 'ativa');
+      haCampanhaAtiva = !!campanha;
       if (!campanha) {
         if (statusAtual.tipo !== 'parado') await gravarStatus({ texto: 'Envio em massa', tipo: 'parado' });
         return;
@@ -1468,6 +1885,16 @@
         avisar(`🚫 ${d.nome || 'Um contato'} pediu para sair ("${d.texto.slice(0, 30)}"). Não receberá mais envios em massa.`, 'info', 9000);
       }
     }
+    // Só abre as campanhas se quem escreveu recebeu alguma (antes lia tudo a cada mensagem recebida)
+    if (!idsAguardando) {
+      const s = new Set();
+      for (const c of await lerCampanhas()) {
+        if (c.status === 'cancelada') continue;
+        c.contatos.forEach((x) => x.status === 'enviado' && !x.respondeu && [x.id, ...(x.ids || [])].forEach((y) => s.add(y)));
+      }
+      idsAguardando = s;
+    }
+    if (!ids.some((x) => idsAguardando.has(x))) return;
     const campanhas = await lerCampanhas();
     for (const c of campanhas) {
       if (c.status === 'cancelada') continue;
@@ -1498,6 +1925,7 @@
   async function recarregarDados() {
     abas = await VF.ler('abas', []);
     respostas = await VF.ler('respostas', []);
+    scripts = await VF.ler('scripts', []);
     if (!etiquetas.length) etiquetas = await VF.ler('etiquetasCache', []);
     desenharPilulas();
   }
@@ -1506,7 +1934,8 @@
   chrome.storage.onChanged.addListener(async (mud, area) => {
     if (area !== 'local') return;
     const chaves = Object.keys(mud);
-    if (mud.abas || mud.respostas) {
+    if (chaves.some((k) => k === 'campanhas' || k.startsWith('campanha:'))) campanhasMudaram();
+    if (mud.abas || mud.respostas || mud.scripts) {
       await recarregarDados();
       if (mud.abas && abaSelecionada !== 'todas') {
         const aba = abas.find((a) => a.id === abaSelecionada);
@@ -1522,7 +1951,8 @@
     if (mexeuCampanha || mud.config) setTimeout(passoDoMotor, 800);
     // Atualiza o painel aberto (menos telas com formulário)
     const relevante =
-      (secaoAtual === 'respostas' && mud.respostas) ||
+      (secaoAtual === 'respostas' && (mud.respostas || mud.scripts)) ||
+      (secaoAtual === 'abas' && mud.abas) ||
       (secaoAtual === 'envio' && (mexeuCampanha || mud.motorStatus)) ||
       (secaoAtual === 'naoperturbe' && mud.naoPerturbe) ||
       (secaoAtual === 'contato' && mud.abas);

@@ -7,6 +7,16 @@ function EditorEtapas(container, etapasIniciais, aoMudar, opcoes = {}) {
   const esc = VF.esc;
   let etapas = JSON.parse(JSON.stringify(etapasIniciais || []));
   const mudou = () => aoMudar && aoMudar(etapas);
+  // Variáveis: o botão mostra o código de verdade ({primeiro_nome}...) e o que ele vira
+  const VARIAVEIS = [
+    ['{primeiro_nome}', 'Primeiro nome do contato (ex.: Maria)'],
+    ['{nome}', 'Nome completo do contato (ex.: Maria Silva)'],
+    ['{saudacao}', 'Bom dia / Boa tarde / Boa noite, conforme a hora'],
+    ['{vendedor}', 'Seu nome (Configurações)'],
+    ['{Oi|Olá|E aí}', 'Sorteia uma das opções para cada contato'],
+  ];
+  const htmlVars = (campo) =>
+    `<div class="vars" data-alvo="${campo}"><span class="vars-rot">Inserir:</span>${VARIAVEIS.map(([v, d]) => `<button type="button" data-var="${esc(v)}" title="${esc(d)}">${esc(v)}</button>`).join('')}</div>`;
 
   function htmlEtapa(e, i) {
     const titulo = e.tipo === 'texto' ? 'Texto' : VF.TIPOS_MIDIA[e.tipoMidia];
@@ -18,14 +28,8 @@ function EditorEtapas(container, etapasIniciais, aoMudar, opcoes = {}) {
     if (e.tipo === 'texto') {
       corpo = `
         <textarea data-campo="texto" placeholder="Ex.: {saudacao}, {primeiro_nome}! Tudo bem? {Vi que|Notei que} você se interessou...">${esc(e.texto || '')}</textarea>
-        <div class="vars">
-          <button type="button" data-var="{primeiro_nome}">+ primeiro nome</button>
-          <button type="button" data-var="{nome}">+ nome completo</button>
-          <button type="button" data-var="{saudacao}">+ bom dia/boa tarde</button>
-          <button type="button" data-var="{vendedor}">+ seu nome</button>
-          <button type="button" data-var="{Oi|Olá|E aí}">+ variação</button>
-        </div>
-        <div class="previa" data-previa>${esc(VF.montarTexto(e.texto || '', { nome: 'Maria Silva', vendedor: 'Você' })) || 'Prévia aparece aqui'}</div>`;
+        ${htmlVars('texto')}
+        <div class="previa" data-previa><b>Prévia:</b>${esc(VF.montarTexto(e.texto || '', { nome: 'Maria Silva', vendedor: 'Você' })) || 'Prévia aparece aqui'}</div>`;
     } else {
       const arquivo = e.midiaId
         ? `<span data-preview="${esc(e.midiaId)}"></span><span>${esc(e.nomeArquivo || '')} <small class="dica">${e.tamanho ? VF.tamanhoLegivel(e.tamanho) : ''}</small></span>`
@@ -39,7 +43,7 @@ function EditorEtapas(container, etapasIniciais, aoMudar, opcoes = {}) {
           e.tipoMidia === 'audio'
             ? `<label class="linha"><input type="checkbox" data-campo="ptt" ${e.ptt !== false ? 'checked' : ''}> Enviar como áudio gravado na hora (nota de voz)</label>
                <div class="dica">Melhor resultado: áudio gravado no próprio WhatsApp ou em .ogg/.opus. MP3 e M4A também costumam funcionar, mas teste antes.</div>`
-            : `<textarea data-campo="legenda" style="min-height:50px" placeholder="Legenda (opcional) — aceita {primeiro_nome}">${esc(e.legenda || '')}</textarea>`
+            : `<textarea data-campo="legenda" style="min-height:50px" placeholder="Legenda (opcional)">${esc(e.legenda || '')}</textarea>${htmlVars('legenda')}`
         }`;
     }
     return `<div class="etapa" data-i="${i}">
@@ -105,7 +109,7 @@ function EditorEtapas(container, etapasIniciais, aoMudar, opcoes = {}) {
     } else if (alvo.closest('[data-escolher]')) {
       caixa.querySelector('[data-arquivo]').click();
     } else if (alvo.closest('[data-var]')) {
-      const ta = caixa.querySelector('textarea[data-campo="texto"]');
+      const ta = caixa.querySelector(`textarea[data-campo="${alvo.closest('[data-alvo]')?.dataset.alvo || 'texto'}"]`);
       const v = alvo.closest('[data-var]').dataset.var;
       const ini = ta.selectionStart ?? ta.value.length;
       ta.value = ta.value.slice(0, ini) + v + ta.value.slice(ta.selectionEnd ?? ini);
@@ -124,7 +128,7 @@ function EditorEtapas(container, etapasIniciais, aoMudar, opcoes = {}) {
     else if (campo === 'espera') e.espera = Math.max(0, Number(ev.target.value) || 0);
     else e[campo] = ev.target.value;
     if (campo === 'texto') {
-      caixa.querySelector('[data-previa]').textContent = VF.montarTexto(e.texto, { nome: 'Maria Silva', vendedor: 'Você' }) || 'Prévia aparece aqui';
+      caixa.querySelector('[data-previa]').lastChild.textContent = ' ' + (VF.montarTexto(e.texto, { nome: 'Maria Silva', vendedor: 'Você' }) || 'Prévia aparece aqui');
     }
     mudou();
   });

@@ -8,5 +8,4 @@ html.vf-ativo #app {
   bottom: 0 !important;
   height: auto !important;
   width: auto !important;
-  transition: right .15s ease;
 }
