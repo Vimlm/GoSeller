@@ -85,7 +85,10 @@
   let respostas = [];
   let scripts = []; // cadeias de respostas rápidas: { id, nome, atalho, itens: [{ respostaId, espera }] }
   let etiquetas = [];
+  let categorias = []; // categorias criadas pelo vendedor (podem estar vazias)
+  let nomes = {}; // nome escolhido pelo vendedor para o contato: { 'id@c.us': 'Maria' } (vale nas variáveis {nome})
   let abaSelecionada = 'todas';
+  const nomeDe = (ids, padrao) => [].concat(ids || []).map((x) => nomes[x]).find(Boolean) || padrao || '';
 
   const idsDaAba = (aba) => [...new Set((aba.chats || []).flatMap((c) => c.ids))];
   const abaTem = (aba, ids) => (aba.chats || []).some((c) => c.ids.some((x) => ids.includes(x)));
@@ -105,6 +108,20 @@
     } catch (e) {
       return [id];
     }
+  }
+
+  async function salvarNome(ids, nome) {
+    const mapa = await VF.ler('nomes', {});
+    ids.forEach((x) => (nome ? (mapa[x] = nome) : delete mapa[x]));
+    nomes = mapa;
+    await VF.gravar('nomes', mapa);
+    // Atualiza o nome guardado nas abas (aparece nas listas)
+    const lista = await VF.ler('abas', []);
+    let mexeu = false;
+    lista.forEach((a) => (a.chats || []).forEach((c) => {
+      if (c.ids.some((x) => ids.includes(x)) && nome && c.nome !== nome) ((c.nome = nome), (mexeu = true));
+    }));
+    if (mexeu) await VF.gravar('abas', lista);
   }
 
   async function carregarEtiquetas() {
@@ -173,6 +190,14 @@
   host.style.cssText = 'position:fixed;inset:0;z-index:2147483000;pointer-events:none;';
   document.documentElement.appendChild(host);
   const raiz = host.attachShadow({ mode: 'open' });
+  // Segunda camada, acima do WhatsApp, só para o que flutua (menus, sugestões do "/", avisos, dicas).
+  // A camada principal (barra, trilho, painel) fica ABAIXO do #app para os menus do WhatsApp
+  // não ficarem escondidos atrás do painel.
+  const hostFlut = document.createElement('div');
+  hostFlut.id = 'vf-host-flut';
+  hostFlut.style.cssText = 'position:fixed;inset:0;z-index:2147483647;pointer-events:none;';
+  document.documentElement.appendChild(hostFlut);
+  const raizFlut = hostFlut.attachShadow({ mode: 'open' });
 
   const SECOES = [
     ['contato', 'usuario', 'Contato aberto (abas e etiquetas)'],
@@ -202,13 +227,28 @@
       </div>
       <div class="lat-corpo" id="corpo"></div>
       <div class="lat-rodape oculto" id="rodape"></div>
-    </aside>
+    </aside>`;
+  raizFlut.innerHTML = `
     <div class="pop oculto" id="pop"></div>
     <div class="sugestoes oculto" id="sugestoes"></div>
-    <div class="avisos" id="avisos"></div>`;
+    <div class="avisos" id="avisos"></div>
+    <div class="dica-flut oculto" id="dicaFlut"></div>`;
 
-  const $ = (s) => raiz.querySelector(s);
+  const $ = (s) => raiz.querySelector(s) || raizFlut.querySelector(s);
   const $$ = (s) => [...raiz.querySelectorAll(s)];
+
+  // Dica ao passar o mouse nos ícones do trilho (na camada de cima, para não ficar atrás do WhatsApp)
+  raiz.addEventListener('mouseover', (e) => {
+    const b = e.target.closest && e.target.closest('[data-dica]');
+    const d = $('#dicaFlut');
+    if (!b) return d.classList.add('oculto');
+    const r = b.getBoundingClientRect();
+    d.textContent = b.dataset.dica;
+    d.style.left = r.right + 8 + 'px';
+    d.style.top = r.top + r.height / 2 + 'px';
+    d.classList.remove('oculto');
+  });
+  $('#trilho').addEventListener('mouseleave', () => $('#dicaFlut').classList.add('oculto'));
 
   // Estilos (constructable stylesheet: não esbarra na política de segurança do WhatsApp)
   fetch(chrome.runtime.getURL('src/ui.css'))
@@ -217,6 +257,7 @@
       const folha = new CSSStyleSheet();
       folha.replaceSync(css);
       raiz.adoptedStyleSheets = [folha];
+      raizFlut.adoptedStyleSheets = [folha];
     })
     .catch((e) => console.warn('[VendaFlow] CSS', e));
 
@@ -224,6 +265,7 @@
   function conferirTema() {
     const escuro = document.body && (document.body.classList.contains('dark') || document.documentElement.classList.contains('dark'));
     host.classList.toggle('escuro', !!escuro);
+    hostFlut.classList.toggle('escuro', !!escuro);
   }
   conferirTema();
   setInterval(conferirTema, 3000);
@@ -335,27 +377,84 @@
     const nota = await VF.ler(chaveNota, '');
     const numero = VF.numeroDoId(ids.find((x) => x.endsWith('@c.us'))) || chatAtual.numero || '';
     const manuais = abas.filter((a) => a.tipo !== 'etiqueta');
+    const nomeWA = chatAtual.nome || '';
+    const nomeMeu = nomeDe(ids, '');
+    const nomeMostrado = nomeMeu || nomeWA || numero || 'Contato';
+    const minhasAbas = manuais.filter((a) => abaTem(a, ids));
+    const minhasEtq = etiquetas.filter((t) => chatAtual.etiquetas.includes(t.id));
+    const pilula = (cor, nome, attr) =>
+      `<span class="tag" style="--c:${esc(cor || '#8696a0')}"><i></i>${esc(nome)}<button type="button" ${attr} title="Tirar">×</button></span>`;
     corpo.innerHTML = `
-      <div class="perfil"><div class="avatar">${esc((VF.primeiroNome(chatAtual.nome) || '?').charAt(0))}</div>
-        <div><b>${esc(chatAtual.nome || numero || 'Contato')}</b><div class="dica">${esc(numero)}</div></div></div>
-      <div class="secao-t">Abas</div>
-      ${manuais.length ? manuais.map((a) => `<label class="check"><input type="checkbox" data-aba="${esc(a.id)}" ${abaTem(a, ids) ? 'checked' : ''}><span class="pilula-mini" style="color:${esc(a.cor)}">●</span> ${esc(a.nome)}</label>`).join('') : '<div class="dica">Nenhuma aba manual. Crie no ícone de pasta lá em cima.</div>'}
-      <div class="secao-t">Etiquetas do WhatsApp</div>
-      ${etiquetas.length ? etiquetas.map((t) => `<label class="check"><input type="checkbox" data-etq="${esc(t.id)}" ${chatAtual.etiquetas.includes(t.id) ? 'checked' : ''}><span style="color:${esc(t.cor)}">●</span> ${esc(t.nome)}</label>`).join('') : '<div class="dica">Nenhuma etiqueta encontrada.</div>'}
+      <div class="perfil"><div class="avatar">${esc((VF.primeiroNome(nomeMostrado) || '?').charAt(0).toUpperCase())}</div>
+        <div class="perfil-txt" id="perfilTxt">
+          <div class="nome-linha"><b>${esc(nomeMostrado)}</b><button type="button" class="icone-btn mini" id="editarNome" title="Mudar o nome deste contato">${IC.lapis}</button></div>
+          <div class="dica">${esc(numero)}${nomeMeu && nomeWA && nomeWA !== nomeMeu ? ` · no WhatsApp: ${esc(nomeWA)}` : ''}</div>
+        </div></div>
+      <div class="secao-cab"><span class="secao-t">Abas</span><button type="button" class="mais-peq" id="addAba">${IC.mais2} Adicionar</button></div>
+      <div class="tags">${minhasAbas.length ? minhasAbas.map((a) => pilula(a.cor, a.nome, `data-tiraraba="${esc(a.id)}"`)).join('') : '<span class="dica">Em nenhuma aba.</span>'}</div>
+      <div class="secao-cab"><span class="secao-t">Etiquetas</span><button type="button" class="mais-peq" id="addEtq">${IC.mais2} Adicionar</button></div>
+      <div class="tags">${minhasEtq.length ? minhasEtq.map((t) => pilula(t.cor, t.nome, `data-tiraretq="${esc(t.id)}"`)).join('') : '<span class="dica">Sem etiqueta.</span>'}</div>
       <div class="secao-t">Anotações</div>
       <textarea id="nota" placeholder="Ex.: interessado no técnico em enfermagem, retornar sexta">${esc(nota)}</textarea>
       <div class="dica" id="notaSalva"></div>`;
-    corpo.onchange = async (e) => {
-      const cx = e.target;
+
+    const mudarEtiqueta = async (id, tipo) => {
       try {
-        if (cx.dataset.aba) await alterarAba(cx.dataset.aba, ids, chatAtual.nome, cx.checked);
-        if (cx.dataset.etq) {
-          await rpc('etiquetar', [chatAtual.id], [{ labelId: cx.dataset.etq, type: cx.checked ? 'add' : 'remove' }]);
-          carregarEtiquetas();
-        }
+        await rpc('etiquetar', [chatAtual.id], [{ labelId: id, type: tipo }]);
+        chatAtual.etiquetas = tipo === 'add' ? [...chatAtual.etiquetas, id] : chatAtual.etiquetas.filter((x) => x !== id);
+        carregarEtiquetas();
+        desenharLateral();
       } catch (er) {
-        cx.checked = !cx.checked;
         avisar('Não deu certo: ' + er.message, 'erro');
+      }
+    };
+    const mudarAba = async (id, incluir) => {
+      await alterarAba(id, ids, nomeMostrado, incluir);
+      const a = abas.find((x) => x.id === id);
+      if (a) avisar(incluir ? `Colocado na aba "${a.nome}".` : `Tirado da aba "${a.nome}".`, 'ok', 2500);
+    };
+
+    corpo.onclick = (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.tiraraba) return mudarAba(b.dataset.tiraraba, false);
+      if (b.dataset.tiraretq) return mudarEtiqueta(b.dataset.tiraretq, 'remove');
+      if (b.id === 'addAba') {
+        const livres = manuais.filter((a) => !abaTem(a, ids));
+        return abrirPop(b, [
+          ...livres.map((a) => ({ texto: `<span style="color:${esc(a.cor)}">●</span> ${esc(a.nome)}`, acao: () => mudarAba(a.id, true) })),
+          ...(!livres.length && manuais.length ? [{ texto: '<span style="opacity:.6">Já está em todas as abas</span>', acao: () => {} }] : []),
+          { texto: '➕ Criar nova aba…', acao: () => abrirLateral('abas', 'nova') },
+        ]);
+      }
+      if (b.id === 'addEtq') {
+        const livres = etiquetas.filter((t) => !chatAtual.etiquetas.includes(t.id));
+        if (!livres.length) return avisar(etiquetas.length ? 'O contato já tem todas as etiquetas.' : 'Nenhuma etiqueta encontrada no WhatsApp Business.');
+        return abrirPop(b, livres.map((t) => ({ texto: `<span style="color:${esc(t.cor)}">●</span> ${esc(t.nome)}`, acao: () => mudarEtiqueta(t.id, 'add') })));
+      }
+      if (b.id === 'editarNome') {
+        const caixa = corpo.querySelector('#perfilTxt');
+        caixa.innerHTML = `<input type="text" id="novoNome" value="${esc(nomeMostrado === numero ? '' : nomeMostrado)}" placeholder="Nome do contato">
+          <div class="nome-acoes"><button type="button" class="btn peq" id="salvarNome">Salvar</button><button type="button" class="btn sec peq" id="cancelarNome">Cancelar</button>
+          ${nomeMeu ? `<button type="button" class="link-btn" id="restaurarNome">Voltar ao nome do WhatsApp</button>` : ''}</div>
+          <div class="dica">Esse é o nome usado em {nome} e {primeiro_nome} nas mensagens. Fica só na extensão.</div>`;
+        const inp = caixa.querySelector('#novoNome');
+        inp.focus();
+        inp.select();
+        inp.onkeydown = (k) => {
+          if (k.key === 'Enter') caixa.querySelector('#salvarNome').click();
+          if (k.key === 'Escape') desenharLateral();
+          k.stopPropagation();
+        };
+        return;
+      }
+      if (b.id === 'cancelarNome') return desenharLateral();
+      if (b.id === 'salvarNome' || b.id === 'restaurarNome') {
+        const valor = b.id === 'salvarNome' ? corpo.querySelector('#novoNome').value.trim() : '';
+        return salvarNome(ids, valor === nomeWA ? '' : valor).then(() => {
+          avisar(valor && valor !== nomeWA ? `Nome trocado para "${valor}".` : 'Voltou ao nome do WhatsApp.', 'ok', 2500);
+          desenharLateral();
+        });
       }
     };
     let t;
@@ -389,7 +488,7 @@
     }
     if (!chat) return avisar('Abra uma conversa primeiro.');
     const cfg = await VF.config();
-    const dados = { nome: chat.nome, vendedor: cfg.nomeVendedor };
+    const dados = { nome: nomeDe(chat.id, chat.nome), vendedor: cfg.nomeVendedor };
     try {
       if (modo === 'colar' && temSoTexto(r)) {
         await rpc('colarTexto', VF.montarTexto(r.etapas[0].texto, dados), chat.id);
@@ -419,6 +518,7 @@
     corpo.innerHTML = `
       ${segmentoRespostas()}
       <div class="busca"><label>${IC.lupa}<input id="busca" placeholder="Pesquisar resposta rápida" value="${esc(estadoUI.busca)}"></label>
+        <button class="icone-btn" id="novaCat" title="Nova categoria">${IC.pastaMais}</button>
         <button class="icone-btn" id="nova" title="Nova resposta" style="background:var(--verde);color:#fff">${IC.mais2}</button></div>
       <div class="chips">${filtros.map(([v, t]) => `<button class="chip ${estadoUI.filtroTipo === v ? 'ativo' : ''}" data-filtro="${v}">${t}</button>`).join('')}</div>
       <div id="listaResp"></div>
@@ -429,12 +529,14 @@
       if (estadoUI.filtroTipo === 'usadas') lista = lista.filter((r) => r.usos).sort((a, b) => b.usos - a.usos).slice(0, 15);
       else if (estadoUI.filtroTipo !== 'tudo') lista = lista.filter((r) => r.etapas.some((e) => (e.tipo === 'texto' ? 'texto' : e.tipoMidia) === estadoUI.filtroTipo));
       const alvo = corpo.querySelector('#listaResp');
-      if (!respostas.length) {
+      const semFiltro = !f && estadoUI.filtroTipo === 'tudo';
+      if (!respostas.length && !(semFiltro && categorias.length)) {
         alvo.innerHTML = `<div class="vazio">Você ainda não tem respostas rápidas.<br><br><button class="btn" data-nova>+ Criar a primeira</button></div>`;
         return;
       }
-      if (!lista.length) return (alvo.innerHTML = '<div class="vazio">Nada encontrado.</div>');
+      if (!lista.length && !semFiltro) return (alvo.innerHTML = '<div class="vazio">Nada encontrado.</div>');
       const pastas = {};
+      if (semFiltro) categorias.forEach((c) => (pastas[c] ||= []));
       lista.forEach((r) => (pastas[r.pasta || 'Sem categoria'] ||= []).push(r));
       // Muitas categorias: começam fechadas (só a primeira aberta), como no modelo
       if (!estadoUI.iniciouCategorias) {
@@ -447,8 +549,9 @@
         .map((p) => {
           const aberta = f || !estadoUI.fechadas.has(p);
           return `<div class="categoria ${aberta ? 'aberta' : ''}">
-            <button class="cat-topo" data-pasta="${esc(p)}"><span class="cat-icone">${IC.categoria}</span><span class="cat-nome">${esc(p)}</span><span class="qtd">${pastas[p].length}</span><span class="seta">${IC.seta}</span></button>
-            ${aberta ? pastas[p].map((r) => htmlItemResposta(r)).join('') : ''}</div>`;
+            <div class="cat-topo" data-pasta="${esc(p)}" role="button"><span class="cat-icone">${IC.categoria}</span><span class="cat-nome">${esc(p)}</span><span class="qtd">${pastas[p].length}</span>
+              <button class="icone-btn cat-mais" data-catmenu="${esc(p)}" title="Editar categoria">${IC.mais}</button><span class="seta">${IC.seta}</span></div>
+            ${aberta ? (pastas[p].length ? pastas[p].map((r) => htmlItemResposta(r)).join('') : `<div class="cat-vazia">Categoria vazia. <button class="link-btn" data-novaem="${esc(p)}">+ Adicionar resposta</button></div>`) : ''}</div>`;
         })
         .join('');
     };
@@ -459,21 +562,27 @@
     };
     corpo.querySelector('#busca').focus();
     corpo.onclick = (e) => {
+      const menuCat = e.target.closest('[data-catmenu]');
+      if (menuCat) return menuCategoria(menuCat, menuCat.dataset.catmenu);
+      const novaEm = e.target.closest('[data-novaem]');
+      if (novaEm) return novaRespostaEm(novaEm.dataset.novaem);
+      const topo = e.target.closest('.cat-topo');
+      if (topo) {
+        const p = topo.dataset.pasta;
+        estadoUI.fechadas.has(p) ? estadoUI.fechadas.delete(p) : estadoUI.fechadas.add(p);
+        return desenharLista();
+      }
       const alvo = e.target.closest('button');
       if (!alvo) return;
+      if (alvo.id === 'novaCat') return novaCategoria();
       if (alvo.dataset.seg) {
         estadoUI.seg = alvo.dataset.seg;
         return desenharLateral();
       }
-      if (alvo.id === 'nova' || alvo.hasAttribute('data-nova')) return irPara('editar:nova');
+      if (alvo.id === 'nova' || alvo.hasAttribute('data-nova')) return novaRespostaEm('');
       if (alvo.dataset.filtro) {
         estadoUI.filtroTipo = alvo.dataset.filtro;
         corpo.querySelectorAll('[data-filtro]').forEach((c) => c.classList.toggle('ativo', c === alvo));
-        return desenharLista();
-      }
-      if (alvo.dataset.pasta !== undefined) {
-        const p = alvo.dataset.pasta;
-        estadoUI.fechadas.has(p) ? estadoUI.fechadas.delete(p) : estadoUI.fechadas.add(p);
         return desenharLista();
       }
       const r = respostas.find((x) => x.id === alvo.closest('[data-resp]')?.dataset.resp);
@@ -493,6 +602,54 @@
       }
     };
   };
+
+  // ---- Categorias (criar, renomear, excluir direto na lista) ----
+  const nomesCategorias = () => [...new Set([...categorias, ...respostas.map((r) => r.pasta).filter(Boolean)])];
+  function novaRespostaEm(pasta) {
+    estadoUI.pastaNova = pasta === 'Sem categoria' ? '' : pasta;
+    irPara('editar:nova');
+  }
+  async function novaCategoria() {
+    const nome = (prompt('Nome da nova categoria:\n(ex.: Técnico em Enfermagem, Pós-graduação, Objeções)') || '').trim();
+    if (!nome) return;
+    if (nomesCategorias().some((c) => c.toLowerCase() === nome.toLowerCase())) return avisar(`A categoria "${nome}" já existe.`, 'erro');
+    estadoUI.fechadas.delete(nome);
+    await VF.gravar('categorias', [...(await VF.ler('categorias', [])), nome]);
+    avisar(`Categoria "${nome}" criada. Use o ⋯ dela para adicionar respostas.`, 'ok');
+  }
+  async function renomearCategoria(antigo) {
+    const nome = (prompt('Novo nome da categoria:', antigo) || '').trim();
+    if (!nome || nome === antigo) return;
+    if (nomesCategorias().some((c) => c !== antigo && c.toLowerCase() === nome.toLowerCase()))
+      if (!confirm(`Já existe "${nome}". Juntar as duas categorias?`)) return;
+    const cats = await VF.ler('categorias', []);
+    await VF.gravar('categorias', [...new Set(cats.map((c) => (c === antigo ? nome : c)))]);
+    const lista = await VF.ler('respostas', []);
+    lista.forEach((r) => r.pasta === antigo && (r.pasta = nome));
+    if (estadoUI.fechadas.delete(antigo)) estadoUI.fechadas.add(nome);
+    await VF.gravar('respostas', lista);
+  }
+  async function excluirCategoria(nome) {
+    const qtd = respostas.filter((r) => r.pasta === nome).length;
+    if (!confirm(`Excluir a categoria "${nome}"?${qtd ? `\n\nAs ${qtd} respostas dela NÃO são apagadas: vão para "Sem categoria".` : ''}`)) return;
+    await VF.gravar('categorias', (await VF.ler('categorias', [])).filter((c) => c !== nome));
+    if (qtd) {
+      const lista = await VF.ler('respostas', []);
+      lista.forEach((r) => r.pasta === nome && (r.pasta = ''));
+      await VF.gravar('respostas', lista);
+    }
+  }
+  function menuCategoria(botao, nome) {
+    abrirPop(botao, [
+      { texto: '➕ Nova resposta nesta categoria', acao: () => novaRespostaEm(nome) },
+      ...(nome === 'Sem categoria'
+        ? []
+        : [
+            { texto: '✏️ Renomear categoria', acao: () => renomearCategoria(nome) },
+            { texto: '🗑️ Excluir categoria', perigo: true, acao: () => excluirCategoria(nome) },
+          ]),
+    ]);
+  }
 
   function htmlItemResposta(r) {
     const aberta = estadoUI.previa.has(r.id);
@@ -561,9 +718,9 @@
     }
     if (!chat) return avisar('Abra uma conversa primeiro.');
     const cfg = await VF.config();
-    const dados = { nome: chat.nome, vendedor: cfg.nomeVendedor };
+    const dados = { nome: nomeDe(chat.id, chat.nome), vendedor: cfg.nomeVendedor };
     scriptRodando = s.nome;
-    avisar(`▶ Enviando o script "${s.nome}" (${itens.length} respostas) para ${VF.primeiroNome(chat.nome) || 'o contato'}…`, 'info', 4000);
+    avisar(`▶ Enviando o script "${s.nome}" (${itens.length} respostas) para ${VF.primeiroNome(dados.nome) || 'o contato'}…`, 'info', 4000);
     try {
       for (let j = 0; j < itens.length; j++) {
         if (j > 0) await VF.dormir(Math.max(0, Number(itens[j].espera) || 0) * 1000);
@@ -762,8 +919,9 @@
   }
 
   function telaEditarResposta(corpo, id) {
-    const r = respostas.find((x) => x.id === id) || { id: VF.novoId(), nome: '', atalho: '', pasta: '', etapas: [{ tipo: 'texto', texto: '', espera: 2 }] };
-    const pastas = [...new Set(respostas.map((x) => x.pasta).filter(Boolean))];
+    const r = respostas.find((x) => x.id === id) || { id: VF.novoId(), nome: '', atalho: '', pasta: estadoUI.pastaNova || '', etapas: [{ tipo: 'texto', texto: '', espera: 2 }] };
+    estadoUI.pastaNova = '';
+    const pastas = nomesCategorias();
     corpo.innerHTML = `
       <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>${id === 'nova' ? 'Nova resposta' : 'Editar resposta'}</h2></div>
       <label class="campo">Nome<input type="text" id="nome" value="${esc(r.nome)}" placeholder="Ex.: 1 - Olá / qual seu nome"></label>
@@ -1823,7 +1981,7 @@
         return pular(`Conversou com você nas últimas ${horas}h (filtro da campanha)`, 2);
       }
 
-      const nome = contato.nome || (info && info.nome) || (await rpc('nomeContato', id).catch(() => ''));
+      const nome = nomeDe(ids, '') || contato.nome || (info && info.nome) || (await rpc('nomeContato', id).catch(() => ''));
       const temMensagem = (campanha.etapas || []).length > 0;
       if (temMensagem) await enviarEtapas(id, campanha.etapas, { nome, vendedor: cfg.nomeVendedor }, { digitacao: cfg.simularDigitacao });
 
@@ -1926,6 +2084,8 @@
     abas = await VF.ler('abas', []);
     respostas = await VF.ler('respostas', []);
     scripts = await VF.ler('scripts', []);
+    nomes = await VF.ler('nomes', {});
+    categorias = await VF.ler('categorias', []);
     if (!etiquetas.length) etiquetas = await VF.ler('etiquetasCache', []);
     desenharPilulas();
   }
@@ -1935,7 +2095,8 @@
     if (area !== 'local') return;
     const chaves = Object.keys(mud);
     if (chaves.some((k) => k === 'campanhas' || k.startsWith('campanha:'))) campanhasMudaram();
-    if (mud.abas || mud.respostas || mud.scripts) {
+    if (mud.nomes) nomes = mud.nomes.newValue || {};
+    if (mud.abas || mud.respostas || mud.scripts || mud.categorias) {
       await recarregarDados();
       if (mud.abas && abaSelecionada !== 'todas') {
         const aba = abas.find((a) => a.id === abaSelecionada);
@@ -1951,11 +2112,11 @@
     if (mexeuCampanha || mud.config) setTimeout(passoDoMotor, 800);
     // Atualiza o painel aberto (menos telas com formulário)
     const relevante =
-      (secaoAtual === 'respostas' && (mud.respostas || mud.scripts)) ||
+      (secaoAtual === 'respostas' && (mud.respostas || mud.scripts || mud.categorias)) ||
       (secaoAtual === 'abas' && mud.abas) ||
       (secaoAtual === 'envio' && (mexeuCampanha || mud.motorStatus)) ||
       (secaoAtual === 'naoperturbe' && mud.naoPerturbe) ||
-      (secaoAtual === 'contato' && mud.abas);
+      (secaoAtual === 'contato' && (mud.abas || mud.nomes));
     if (relevante && !telaComFormulario()) {
       clearTimeout(redesenho);
       redesenho = setTimeout(() => {

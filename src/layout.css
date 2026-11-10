@@ -8,4 +8,7 @@ html.vf-ativo #app {
   bottom: 0 !important;
   height: auto !important;
   width: auto !important;
+  /* Fica acima do painel: menus do WhatsApp (opções da mensagem etc.) que passam da borda
+     aparecem por cima do painel em vez de ficarem escondidos atrás dele. */
+  z-index: 2147483001 !important;
 }
