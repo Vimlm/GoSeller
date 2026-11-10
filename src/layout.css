@@ -1,0 +1,10 @@
+/* Abre espaço no topo do WhatsApp Web para a barra do VendaFlow (40px). */
+html.vf-ativo #app {
+  position: fixed !important;
+  top: 40px !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  height: auto !important;
+  width: auto !important;
+}

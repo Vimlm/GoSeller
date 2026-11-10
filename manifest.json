@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "VendaFlow – Respostas rápidas, abas e envios",
+  "short_name": "VendaFlow",
+  "version": "0.1.0",
+  "description": "Respostas rápidas, abas de leads e envio em massa com ritmo seguro no WhatsApp Web.",
+  "icons": { "16": "icons/16.png", "48": "icons/48.png", "128": "icons/128.png" },
+  "action": { "default_title": "Abrir painel do VendaFlow", "default_icon": { "16": "icons/16.png", "48": "icons/48.png" } },
+  "options_page": "painel/painel.html",
+  "background": { "service_worker": "src/background.js" },
+  "permissions": ["storage", "unlimitedStorage", "alarms"],
+  "host_permissions": ["https://web.whatsapp.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["src/config-wpp.js", "lib/wppconnect-wa.js", "src/pagina.js"],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://web.whatsapp.com/*"],
+      "js": ["src/comum.js", "src/conteudo.js"],
+      "css": ["src/layout.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["src/barra.css"], "matches": ["https://web.whatsapp.com/*"] }
+  ]
+}
