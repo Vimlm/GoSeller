@@ -1950,7 +1950,6 @@
   abasWABtn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;margin-right:8px;border-radius:18px;border:1.5px solid rgba(134,150,160,.45);cursor:pointer;color:inherit;font-size:14px;font-weight:500;flex:none;white-space:nowrap;box-sizing:border-box;';
   abasWABtn.innerHTML = SVG_PASTA + '<span>Abas</span>';
   for (const b of [nomeWABtn, abasWABtn]) {
-    b.addEventListener('mousedown', (e) => e.stopPropagation(), true);
     b.addEventListener('mouseenter', () => (b.style.background = 'rgba(134,150,160,.15)'));
     b.addEventListener('mouseleave', () => (b.style.background = ''));
   }
@@ -1971,9 +1970,7 @@
       ? minhas.slice(0, 3).map((a) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(a.cor)};margin-right:4px"></span>`).join('') + esc(minhas.length === 1 ? minhas[0].nome : minhas.length + ' abas')
       : 'Abas';
   }
-  nomeWABtn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const abrirNomeCab = async () => {
     const ids = await idsDoCabecalho();
     if (!ids) return avisar('Abra uma conversa (que não seja grupo).');
     const nomeWA = chatAtual.nome || '';
@@ -2002,10 +1999,8 @@
       if (ev.target.closest('[data-ok]')) salvar(inp.value.trim());
       if (ev.target.closest('[data-volta]')) salvar('');
     };
-  });
-  abasWABtn.addEventListener('click', async (e) => {
-    e.stopPropagation();
-    e.preventDefault();
+  };
+  const abrirAbasCab = async () => {
     const ids = await idsDoCabecalho();
     if (!ids) return avisar('Abra uma conversa (que não seja grupo).');
     const manuais = abas.filter((a) => a.tipo !== 'etiqueta');
@@ -2021,7 +2016,23 @@
       },
       { texto: '➕ Criar nova aba…', acao: () => abrirLateral('abas', 'nova') }
     );
-  });
+  };
+  // O nome no cabeçalho é clicável no WhatsApp (abre os dados do contato). Seguramos o clique
+  // na janela, antes de o WhatsApp ver, para o lápis e o botão de abas só fazerem o que é deles.
+  for (const tipo of ['pointerdown', 'mousedown', 'pointerup', 'mouseup', 'click', 'dblclick', 'touchstart', 'touchend']) {
+    window.addEventListener(
+      tipo,
+      (e) => {
+        const caminho = e.composedPath();
+        const b = caminho.includes(nomeWABtn) ? nomeWABtn : caminho.includes(abasWABtn) ? abasWABtn : null;
+        if (!b) return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        if (tipo === 'click') (b === nomeWABtn ? abrirNomeCab : abrirAbasCab)();
+      },
+      { capture: true, passive: false }
+    );
+  }
   const SELETORES_BUSCA = '[data-icon="search-alt"],[data-icon="search"],[data-icon="search-refreshed"],[data-icon="wds-ic-search"],[aria-label="Pesquisar"],[aria-label="Search"],[aria-label="Pesquisar…"]';
   function encaixarCabecalho() {
     const header = document.querySelector('#main header');
