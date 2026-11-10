@@ -43,6 +43,8 @@
     } else if (d.evento === 'chatAtivo') {
       chatAtual = d.chat;
       if (secaoAtual === 'contato') desenharLateral();
+      atualizarCabecalho();
+      encaixarCabecalho();
     } else if (d.evento === 'mensagem') {
       tratarMensagemRecebida(d).catch((e) => console.warn('[VendaFlow]', e));
     }
@@ -200,7 +202,7 @@
   const raizFlut = hostFlut.attachShadow({ mode: 'open' });
 
   const SECOES = [
-    ['contato', 'usuario', 'Contato aberto (abas e etiquetas)'],
+    ['contato', 'usuario', 'Contato aberto (nome e anotações)'],
     ['respostas', 'raio', 'Respostas rápidas'],
     ['envio', 'aviao', 'Envio em massa'],
     ['abas', 'funil', 'Abas'],
@@ -279,14 +281,72 @@
   }
 
   // ---- Menu "..." (popover) ----
-  function abrirPop(botao, itens) {
+  function posicionarPop(botao) {
     const pop = $('#pop');
-    pop.innerHTML = itens.map((it, i) => `<button data-i="${i}" class="${it.perigo ? 'perigo' : ''}">${it.texto}</button>`).join('');
     pop.classList.remove('oculto');
     const r = botao.getBoundingClientRect();
     const larg = pop.offsetWidth || 200;
+    const alt = pop.offsetHeight || 100;
     pop.style.left = Math.max(8, Math.min(r.right - larg, window.innerWidth - larg - 8)) + 'px';
-    pop.style.top = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 8) + 'px';
+    pop.style.top = (r.bottom + 4 + alt > window.innerHeight - 8 ? Math.max(8, r.top - alt - 4) : r.bottom + 4) + 'px';
+  }
+  // Lista com marcar/desmarcar que continua aberta (escolher várias abas/etiquetas)
+  function abrirPopMulti(botao, opcoes, sel, aoMudar, extra) {
+    const pop = $('#pop');
+    const desenhar = () => {
+      let grupo = null;
+      pop.innerHTML =
+        opcoes
+          .map((o, i) => {
+            const cab = o.grupo && o.grupo !== grupo ? `<div class="pop-grupo">${esc((grupo = o.grupo))}</div>` : '';
+            return `${cab}<button data-i="${i}" class="${sel.has(o.id) ? 'marcado' : ''}"><span class="caixa">${sel.has(o.id) ? '✓' : ''}</span><span style="color:${esc(o.cor || '#8696a0')}">●</span><span class="pop-nome">${esc(o.nome)}</span>${o.extra != null ? `<small>${esc(String(o.extra))}</small>` : ''}</button>`;
+          })
+          .join('') +
+        (opcoes.length ? '' : '<div class="dica" style="padding:8px">Nada para escolher.</div>') +
+        (extra ? `<div class="pop-sep"></div><button data-extra>${extra.texto}</button>` : '');
+    };
+    desenhar();
+    posicionarPop(botao);
+    pop.onclick = (e) => {
+      if (e.target.closest('[data-extra]')) {
+        fecharPop();
+        return extra.acao();
+      }
+      const b = e.target.closest('[data-i]');
+      if (!b) return;
+      const o = opcoes[Number(b.dataset.i)];
+      sel.has(o.id) ? sel.delete(o.id) : sel.add(o.id);
+      desenhar();
+      aoMudar(sel, o.id, sel.has(o.id));
+    };
+  }
+  // Seletor compacto: pílulas do que foi escolhido + botão "Adicionar"
+  function seletorMulti(el, opcoesFn, inicial, aoMudar, vazio = 'Nenhuma escolhida') {
+    const sel = new Set(inicial || []);
+    const desenhar = () => {
+      const escolhidos = opcoesFn().filter((o) => sel.has(o.id));
+      el.innerHTML = `<div class="tags">${escolhidos.map((o) => `<span class="tag" style="--c:${esc(o.cor || '#8696a0')}"><i></i>${esc(o.nome)}<button type="button" data-tirar="${esc(o.id)}" title="Tirar">×</button></span>`).join('') || `<span class="dica">${vazio}</span>`}<button type="button" class="mais-peq" data-add>${IC.mais2} Adicionar</button></div>`;
+    };
+    el.addEventListener('click', (e) => {
+      const t = e.target.closest('[data-tirar]');
+      if (t) {
+        sel.delete(t.dataset.tirar);
+        desenhar();
+        return aoMudar && aoMudar(sel);
+      }
+      const a = e.target.closest('[data-add]');
+      if (a) abrirPopMulti(a, opcoesFn(), sel, () => {
+        desenhar();
+        aoMudar && aoMudar(sel);
+      });
+    });
+    desenhar();
+    return { valor: () => [...sel], definir: (v) => (sel.clear(), (v || []).forEach((x) => sel.add(x)), desenhar()) };
+  }
+  function abrirPop(botao, itens) {
+    const pop = $('#pop');
+    pop.innerHTML = itens.map((it, i) => `<button data-i="${i}" class="${it.perigo ? 'perigo' : ''}">${it.texto}</button>`).join('');
+    posicionarPop(botao);
     pop.onclick = (e) => {
       const b = e.target.closest('[data-i]');
       if (!b) return;
@@ -369,69 +429,29 @@
       chatAtual = (await rpc('chatAtivo')) || null;
     } catch (e) { /* usa o último */ }
     if (!chatAtual || chatAtual.grupo) {
-      corpo.innerHTML = `<div class="lat-titulo"><h2>Contato</h2></div><div class="vazio">Abra uma conversa (que não seja grupo) para colocar o lead em abas, etiquetas e anotar coisas sobre ele.</div>`;
+      corpo.innerHTML = `<div class="lat-titulo"><h2>Contato</h2></div><div class="vazio">Abra uma conversa (que não seja grupo) para mudar o nome do lead e anotar coisas sobre ele.</div>`;
       return;
     }
     const ids = await equivalentes(chatAtual.id);
     const chaveNota = 'nota:' + (ids.find((x) => x.endsWith('@c.us')) || ids[0]);
     const nota = await VF.ler(chaveNota, '');
     const numero = VF.numeroDoId(ids.find((x) => x.endsWith('@c.us'))) || chatAtual.numero || '';
-    const manuais = abas.filter((a) => a.tipo !== 'etiqueta');
     const nomeWA = chatAtual.nome || '';
     const nomeMeu = nomeDe(ids, '');
     const nomeMostrado = nomeMeu || nomeWA || numero || 'Contato';
-    const minhasAbas = manuais.filter((a) => abaTem(a, ids));
-    const minhasEtq = etiquetas.filter((t) => chatAtual.etiquetas.includes(t.id));
-    const pilula = (cor, nome, attr) =>
-      `<span class="tag" style="--c:${esc(cor || '#8696a0')}"><i></i>${esc(nome)}<button type="button" ${attr} title="Tirar">×</button></span>`;
     corpo.innerHTML = `
       <div class="perfil"><div class="avatar">${esc((VF.primeiroNome(nomeMostrado) || '?').charAt(0).toUpperCase())}</div>
         <div class="perfil-txt" id="perfilTxt">
           <div class="nome-linha"><b>${esc(nomeMostrado)}</b><button type="button" class="icone-btn mini" id="editarNome" title="Mudar o nome deste contato">${IC.lapis}</button></div>
           <div class="dica">${esc(numero)}${nomeMeu && nomeWA && nomeWA !== nomeMeu ? ` · no WhatsApp: ${esc(nomeWA)}` : ''}</div>
         </div></div>
-      <div class="secao-cab"><span class="secao-t">Abas</span><button type="button" class="mais-peq" id="addAba">${IC.mais2} Adicionar</button></div>
-      <div class="tags">${minhasAbas.length ? minhasAbas.map((a) => pilula(a.cor, a.nome, `data-tiraraba="${esc(a.id)}"`)).join('') : '<span class="dica">Em nenhuma aba.</span>'}</div>
-      <div class="secao-cab"><span class="secao-t">Etiquetas</span><button type="button" class="mais-peq" id="addEtq">${IC.mais2} Adicionar</button></div>
-      <div class="tags">${minhasEtq.length ? minhasEtq.map((t) => pilula(t.cor, t.nome, `data-tiraretq="${esc(t.id)}"`)).join('') : '<span class="dica">Sem etiqueta.</span>'}</div>
       <div class="secao-t">Anotações</div>
       <textarea id="nota" placeholder="Ex.: interessado no técnico em enfermagem, retornar sexta">${esc(nota)}</textarea>
       <div class="dica" id="notaSalva"></div>`;
 
-    const mudarEtiqueta = async (id, tipo) => {
-      try {
-        await rpc('etiquetar', [chatAtual.id], [{ labelId: id, type: tipo }]);
-        chatAtual.etiquetas = tipo === 'add' ? [...chatAtual.etiquetas, id] : chatAtual.etiquetas.filter((x) => x !== id);
-        carregarEtiquetas();
-        desenharLateral();
-      } catch (er) {
-        avisar('Não deu certo: ' + er.message, 'erro');
-      }
-    };
-    const mudarAba = async (id, incluir) => {
-      await alterarAba(id, ids, nomeMostrado, incluir);
-      const a = abas.find((x) => x.id === id);
-      if (a) avisar(incluir ? `Colocado na aba "${a.nome}".` : `Tirado da aba "${a.nome}".`, 'ok', 2500);
-    };
-
     corpo.onclick = (e) => {
       const b = e.target.closest('button');
       if (!b) return;
-      if (b.dataset.tiraraba) return mudarAba(b.dataset.tiraraba, false);
-      if (b.dataset.tiraretq) return mudarEtiqueta(b.dataset.tiraretq, 'remove');
-      if (b.id === 'addAba') {
-        const livres = manuais.filter((a) => !abaTem(a, ids));
-        return abrirPop(b, [
-          ...livres.map((a) => ({ texto: `<span style="color:${esc(a.cor)}">●</span> ${esc(a.nome)}`, acao: () => mudarAba(a.id, true) })),
-          ...(!livres.length && manuais.length ? [{ texto: '<span style="opacity:.6">Já está em todas as abas</span>', acao: () => {} }] : []),
-          { texto: '➕ Criar nova aba…', acao: () => abrirLateral('abas', 'nova') },
-        ]);
-      }
-      if (b.id === 'addEtq') {
-        const livres = etiquetas.filter((t) => !chatAtual.etiquetas.includes(t.id));
-        if (!livres.length) return avisar(etiquetas.length ? 'O contato já tem todas as etiquetas.' : 'Nenhuma etiqueta encontrada no WhatsApp Business.');
-        return abrirPop(b, livres.map((t) => ({ texto: `<span style="color:${esc(t.cor)}">●</span> ${esc(t.nome)}`, acao: () => mudarEtiqueta(t.id, 'add') })));
-      }
       if (b.id === 'editarNome') {
         const caixa = corpo.querySelector('#perfilTxt');
         caixa.innerHTML = `<input type="text" id="novoNome" value="${esc(nomeMostrado === numero ? '' : nomeMostrado)}" placeholder="Nome do contato">
@@ -1117,14 +1137,60 @@
     a.click();
   }
 
+  // Lê uma planilha CSV e devolve [{ numero, nome }] (descobre o separador e as colunas sozinho)
+  function lerCSV(texto) {
+    const linhas = texto.replace(/^\uFEFF/, '').split(/\r?\n/).filter((l) => l.trim());
+    if (!linhas.length) return null;
+    const sep = [';', ',', '\t'].map((c) => [c, linhas[0].split(c).length]).sort((a, b) => b[1] - a[1])[0][0];
+    const partir = (l) => {
+      const out = [];
+      let cur = '';
+      let aspas = false;
+      for (const ch of l) {
+        if (ch === '"') aspas = !aspas;
+        else if (ch === sep && !aspas) (out.push(cur), (cur = ''));
+        else cur += ch;
+      }
+      out.push(cur);
+      return out.map((x) => x.trim());
+    };
+    const rows = linhas.map(partir);
+    const digitos = (x) => String(x || '').replace(/\D/g, '').length;
+    const cab = rows[0].map((x) => VF.semAcento(x.toLowerCase()));
+    const temCab = !rows[0].some((x) => digitos(x) >= 10);
+    const dados = temCab ? rows.slice(1) : rows;
+    let iNum = temCab ? cab.findIndex((c) => /whats|celular|telefone|fone|^tel|numero|phone|mobile/.test(c)) : -1;
+    if (iNum < 0 || !dados.some((r) => digitos(r[iNum]) >= 10)) {
+      let melhor = -1;
+      let qtd = 0;
+      const n = Math.max(...dados.map((r) => r.length));
+      for (let i = 0; i < n; i++) {
+        const c = dados.filter((r) => digitos(r[i]) >= 10 && digitos(r[i]) <= 15).length;
+        if (c > qtd) ((qtd = c), (melhor = i));
+      }
+      iNum = melhor;
+    }
+    if (iNum < 0) return null;
+    let iNome = temCab ? cab.findIndex((c, i) => i !== iNum && /^(nome|name|primeiro nome|first name|cliente|lead|aluno|contato)/.test(c)) : -1;
+    if (iNome < 0 && dados[0]) iNome = dados[0].findIndex((x, i) => i !== iNum && /[a-zà-ú]{2}/i.test(x) && !x.includes('@'));
+    return {
+      colNumero: temCab ? rows[0][iNum] : 'coluna ' + (iNum + 1),
+      colNome: iNome >= 0 ? (temCab ? rows[0][iNome] : 'coluna ' + (iNome + 1)) : '',
+      linhas: dados.map((r) => ({ numero: r[iNum] || '', nome: iNome >= 0 ? r[iNome] || '' : '' })).filter((x) => digitos(x.numero) >= 8),
+    };
+  }
+
   async function telaNovaCampanha(corpo, idBase) {
     const base = idBase ? await VF.ler('campanha:' + idBase) : null;
     const cfg = await VF.config();
     const manuais = abas.filter((a) => a.tipo !== 'etiqueta');
     const opAbas = (vazio) => `<option value="">${vazio}</option>` + manuais.map((a) => `<option value="${esc(a.id)}">${esc(a.nome)} (${(a.chats || []).length})</option>`).join('');
     const opEtiq = (vazio) => `<option value="">${vazio}</option>` + etiquetas.map((e) => `<option value="${esc(e.id)}">${esc(e.nome)} (${e.total})</option>`).join('');
-    const checksEtiq = (nome) =>
-      etiquetas.length ? etiquetas.map((e) => `<label class="check"><input type="checkbox" name="${nome}" value="${esc(e.id)}"><span style="color:${esc(e.cor)}">●</span> ${esc(e.nome)}</label>`).join('') : '<div class="dica">Nenhuma etiqueta.</div>';
+    const opsEtq = () => etiquetas.map((e) => ({ id: e.id, nome: e.nome, cor: e.cor, extra: e.total }));
+    const opsGrupos = () => [
+      ...etiquetas.map((e) => ({ id: 'e:' + e.id, nome: e.nome, cor: e.cor, grupo: 'Etiquetas do WhatsApp', extra: e.total })),
+      ...manuais.map((a) => ({ id: 'a:' + a.id, nome: a.nome, cor: a.cor, grupo: 'Abas', extra: (a.chats || []).length })),
+    ];
 
     corpo.innerHTML = `
       <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>Nova campanha</h2></div>
@@ -1132,15 +1198,18 @@
 
       <div class="cartao"><h3><span class="passo">1</span>Para quem?</h3>
         <select id="origem">
-          <option value="etiqueta">Quem tem uma etiqueta</option>
-          <option value="aba">Quem está em uma aba</option>
+          <option value="grupos">Etiquetas e/ou abas (pode escolher várias)</option>
           <option value="todas">Todas as conversas</option>
-          <option value="lista">Colar uma lista de números</option>
+          <option value="lista">Planilha (CSV) ou lista de números</option>
         </select>
         <div style="margin-top:8px">
-          <select id="origemEtiqueta" data-o="etiqueta">${opEtiq('Escolha a etiqueta…')}</select>
-          <select id="origemAba" data-o="aba" class="oculto">${opAbas('Escolha a aba…')}</select>
-          <textarea id="origemLista" data-o="lista" class="oculto" placeholder="Um número por linha (pode ter o nome depois de ; )&#10;11999998888;Maria&#10;21988887777;João"></textarea>
+          <div id="origemGrupos" data-o="grupos"></div>
+          <div data-o="lista" class="oculto">
+            <button type="button" class="btn sec peq" id="importarCSV">📄 Importar planilha (CSV)</button>
+            <input type="file" id="arquivoCSV" accept=".csv,.txt,text/csv" class="oculto">
+            <textarea id="origemLista" style="margin-top:8px" placeholder="Ou cole um número por linha (pode ter o nome depois de ; )&#10;11999998888;Maria&#10;21988887777;João"></textarea>
+            <div class="dica">A planilha precisa ter uma coluna com o telefone (com DDD). Se tiver uma coluna de nome, ele vai para o {nome}. No Excel/Google Planilhas: Arquivo › Baixar/Salvar como › CSV.</div>
+          </div>
         </div>
         <div id="publico" class="dica" style="margin-top:8px"></div>
       </div>
@@ -1152,15 +1221,17 @@
       </div>
 
       <details class="cartao"><summary>Mais opções (etiquetas, abas e filtros)</summary>
-        <div class="secao-t">Depois de enviar, colocar etiqueta</div>${checksEtiq('addEtiq')}
-        <div class="secao-t">Depois de enviar, tirar etiqueta</div>${checksEtiq('remEtiq')}
-        <div class="duas" style="margin-top:10px">
-          <label class="campo">Depois de enviar, pôr na aba<select id="addAba">${opAbas('—')}</select></label>
-          <label class="campo">Depois de enviar, tirar da aba<select id="remAba">${opAbas('—')}</select></label>
-        </div>
+        <div class="secao-t">Depois de enviar</div>
         <div class="duas">
-          <label class="campo">Se responder, pôr na aba<select id="respAba">${opAbas('—')}</select></label>
-          <label class="campo">Se responder, pôr etiqueta<select id="respEtiq">${opEtiq('—')}</select></label>
+          <label class="campo">Pôr na aba<select id="addAba">${opAbas('—')}</select></label>
+          <label class="campo">Tirar da aba<select id="remAba">${opAbas('—')}</select></label>
+        </div>
+        <div class="linha-sel"><span>Colocar etiquetas</span><div id="addEtiq"></div></div>
+        <div class="linha-sel"><span>Tirar etiquetas</span><div id="remEtiq"></div></div>
+        <div class="secao-t">Se responder</div>
+        <div class="duas">
+          <label class="campo">Pôr na aba<select id="respAba">${opAbas('—')}</select></label>
+          <label class="campo">Pôr etiqueta<select id="respEtiq">${opEtiq('—')}</select></label>
         </div>
         <div class="secao-t">Filtros</div>
         <div class="duas">
@@ -1168,7 +1239,7 @@
           <label class="campo">Última conversa há no máximo<input type="number" id="maxDias" min="0" placeholder="dias"></label>
         </div>
         <label class="campo">Pular quem conversou com você nas últimas (horas)<input type="number" id="recente" min="0" value="${base ? base.pularRecenteHoras || 0 : 0}"><small>0 = não pular ninguém. Use para não mandar campanha para quem está em atendimento agora.</small></label>
-        <div class="secao-t">Não enviar para quem tem a etiqueta</div>${checksEtiq('exclEtiq')}
+        <div class="linha-sel"><span>Não enviar para quem tem</span><div id="exclEtiq"></div></div>
       </details>
       <div id="estimativa" class="dica"></div>`;
     rodape(`<button class="btn sec" id="teste">Testar em mim</button><button class="btn" id="criar">${IC.play} Começar envio</button>`);
@@ -1177,49 +1248,79 @@
     const q = (s) => corpo.querySelector(s);
     const qq = (s) => [...corpo.querySelectorAll(s)];
     let publico = null;
+    const selGrupos = seletorMulti(q('#origemGrupos'), opsGrupos, [], () => atualizarPublico(), 'Nenhuma escolhida ainda');
+    const selAdd = seletorMulti(q('#addEtiq'), opsEtq, [], null, '—');
+    const selRem = seletorMulti(q('#remEtiq'), opsEtq, [], null, '—');
+    const selExcl = seletorMulti(q('#exclEtiq'), opsEtq, [], () => atualizarPublico(), '—');
 
     if (base) {
       const a = base.acoes || {};
       q('#addAba').value = a.addAba || '';
       q('#remAba').value = a.removerAba || '';
-      (a.addEtiquetas || []).forEach((v) => qq('input[name=addEtiq]').find((x) => x.value === v)?.click());
-      (a.removerEtiquetas || []).forEach((v) => qq('input[name=remEtiq]').find((x) => x.value === v)?.click());
+      selAdd.definir(a.addEtiquetas);
+      selRem.definir(a.removerEtiquetas);
+      selExcl.definir(base.excluirEtiquetas);
       q('#respAba').value = (base.aoResponder || {}).addAba || '';
       q('#respEtiq').value = (base.aoResponder || {}).addEtiqueta || '';
-      if (base.origem) {
-        q('#origem').value = base.origem.tipo;
-        if (base.origem.tipo === 'aba') q('#origemAba').value = base.origem.valor || '';
-        if (base.origem.tipo === 'etiqueta') q('#origemEtiqueta').value = base.origem.valor || '';
-      }
-    } else if (!etiquetas.length) {
-      q('#origem').value = manuais.length ? 'aba' : 'lista';
+      const o = base.origem || {};
+      if (o.tipo === 'aba' || o.tipo === 'etiqueta') selGrupos.definir([(o.tipo === 'aba' ? 'a:' : 'e:') + o.valor]);
+      if (o.tipo === 'grupos') selGrupos.definir(o.valores || []);
+      if (o.tipo) q('#origem').value = o.tipo === 'aba' || o.tipo === 'etiqueta' ? 'grupos' : o.tipo;
+    } else if (!etiquetas.length && !manuais.length) {
+      q('#origem').value = 'lista';
     }
+
+    // Importar planilha (CSV): acha a coluna do telefone e a do nome sozinho
+    q('#importarCSV').onclick = () => q('#arquivoCSV').click();
+    q('#arquivoCSV').onchange = async (e) => {
+      const arq = e.target.files[0];
+      e.target.value = '';
+      if (!arq) return;
+      let texto = await arq.text();
+      if (texto.includes('\uFFFD')) texto = new TextDecoder('windows-1252').decode(await arq.arrayBuffer()); // planilha salva no Excel antigo
+      const r = lerCSV(texto);
+      if (!r || !r.linhas.length) return avisar('Não achei nenhuma coluna com telefone nessa planilha.', 'erro');
+      const ta = q('#origemLista');
+      const novas = r.linhas.map((x) => x.numero.replace(/[^\d+]/g, '') + (x.nome ? ';' + x.nome.replace(/[;\n]/g, ' ') : '')).join('\n');
+      ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + novas;
+      avisar(`${r.linhas.length} contatos importados de "${arq.name}" (telefone: coluna "${r.colNumero}"${r.colNome ? `, nome: coluna "${r.colNome}"` : ''}).`, 'ok', 7000);
+      atualizarPublico();
+    };
 
     async function montarPublico() {
       const origem = q('#origem').value;
       const minDias = Number(q('#minDias').value) || 0;
       const maxDias = Number(q('#maxDias').value) || 0;
-      const excl = qq('input[name=exclEtiq]:checked').map((x) => x.value);
+      const excl = selExcl.valor();
       const naoPerturbe = await VF.ler('naoPerturbe', []);
       const bloqueados = new Set(naoPerturbe.flatMap((n) => n.ids));
       let candidatos = [];
       let chats = null;
-      if (origem === 'etiqueta' && !q('#origemEtiqueta').value) return null;
-      if (origem === 'aba' && !q('#origemAba').value) return null;
+      const grupos = selGrupos.valor();
+      if (origem === 'grupos' && !grupos.length) return null;
       if (origem === 'lista' && !q('#origemLista').value.trim()) return null;
-      const precisaWA = origem === 'etiqueta' || origem === 'todas' || minDias || maxDias || excl.length;
-      if (precisaWA) chats = await rpc('listarChats', origem === 'etiqueta' ? { etiqueta: q('#origemEtiqueta').value } : {});
+      const abasSel = grupos.filter((g) => g.startsWith('a:')).map((g) => g.slice(2));
+      const etqSel = grupos.filter((g) => g.startsWith('e:')).map((g) => g.slice(2));
 
       let invalidos = 0;
-      if (origem === 'aba') {
-        const aba = abas.find((a) => a.id === q('#origemAba').value);
-        const mapa = new Map((chats || []).map((c) => [c.id, c]));
-        candidatos = (aba.chats || []).map((c) => {
-          const info = c.ids.map((x) => mapa.get(x)).find(Boolean);
-          return { id: c.ids.find((x) => x.endsWith('@c.us')) || c.ids[0], ids: c.ids, nome: (info && info.nome) || c.nome, t: info ? info.t : 0, etiquetas: info ? info.etiquetas : [], semInfo: !info };
-        });
-      } else if (origem === 'etiqueta' || origem === 'todas') {
-        candidatos = chats.map((c) => ({ ...c, ids: [c.id] }));
+      if (origem === 'grupos') {
+        for (const etq of etqSel) candidatos.push(...(await rpc('listarChats', { etiqueta: etq })).map((c) => ({ ...c, ids: [c.id] })));
+        if (abasSel.length) {
+          chats = minDias || maxDias || excl.length ? await rpc('listarChats', {}) : [];
+          const mapa = new Map(chats.map((c) => [c.id, c]));
+          for (const abaId of abasSel) {
+            const aba = abas.find((a) => a.id === abaId);
+            if (!aba) continue;
+            candidatos.push(
+              ...(aba.chats || []).map((c) => {
+                const info = c.ids.map((x) => mapa.get(x)).find(Boolean);
+                return { id: c.ids.find((x) => x.endsWith('@c.us')) || c.ids[0], ids: c.ids, nome: (info && info.nome) || c.nome, t: info ? info.t : 0, etiquetas: info ? info.etiquetas : [], semInfo: !info };
+              })
+            );
+          }
+        }
+      } else if (origem === 'todas') {
+        candidatos = (await rpc('listarChats', {})).map((c) => ({ ...c, ids: [c.id] }));
       } else {
         for (const l of q('#origemLista').value.split('\n').map((x) => x.trim()).filter(Boolean)) {
           const [num, ...resto] = l.split(/[;,\t]/);
@@ -1271,7 +1372,7 @@
             return;
           }
           const fora = publico.fora;
-          const motivos = [fora.bloqueados && `${fora.bloqueados} no Não perturbe`, fora.filtro && `${fora.filtro} pelos filtros`, fora.repetidos && `${fora.repetidos} repetidos`, fora.invalidos && `${fora.invalidos} números inválidos`].filter(Boolean);
+          const motivos = [fora.bloqueados && `${fora.bloqueados} no Não perturbe`, fora.filtro && `${fora.filtro} pelos filtros`, fora.repetidos && `${fora.repetidos} repetidos (estavam em mais de um grupo)`, fora.invalidos && `${fora.invalidos} números inválidos`].filter(Boolean);
           const nomes = publico.contatos.slice(0, 5).map((c) => c.nome || VF.numeroDoId(c.id) || c.id.split('@')[0]);
           alvo.innerHTML = `<b style="color:var(--verde-txt);font-size:14px">👥 ${publico.contatos.length} lead(s) vão receber</b>
             ${nomes.length ? `<div>${esc(nomes.join(', '))}${publico.contatos.length > 5 ? '…' : ''}</div>` : ''}${motivos.length ? `<div>Fora: ${motivos.join(', ')}</div>` : ''}`;
@@ -1284,7 +1385,7 @@
     }
     corpo.oninput = corpo.onchange = (e) => {
       if (e.target.closest('#etapas') || e.target.id === 'nome' || e.target.id === 'usarResp') return;
-      if (['addAba', 'remAba', 'respAba', 'respEtiq', 'recente'].includes(e.target.id) || ['addEtiq', 'remEtiq'].includes(e.target.name)) return;
+      if (['addAba', 'remAba', 'respAba', 'respEtiq', 'recente', 'arquivoCSV'].includes(e.target.id)) return;
       atualizarPublico();
     };
     q('#usarResp').onchange = (e) => {
@@ -1317,8 +1418,8 @@
       const acoes = {
         addAba: q('#addAba').value,
         removerAba: q('#remAba').value,
-        addEtiquetas: qq('input[name=addEtiq]:checked').map((x) => x.value),
-        removerEtiquetas: qq('input[name=remEtiq]:checked').map((x) => x.value),
+        addEtiquetas: selAdd.valor(),
+        removerEtiquetas: selRem.valor(),
       };
       const temAcao = acoes.addAba || acoes.removerAba || acoes.addEtiquetas.length || acoes.removerEtiquetas.length;
       if (!etapas.length && !temAcao) return avisar('Coloque o que enviar (passo 2).', 'erro');
@@ -1330,7 +1431,8 @@
         criadaEm: Date.now(),
         status: 'ativa',
         motivo: '',
-        origem: { tipo: origem, valor: origem === 'aba' ? q('#origemAba').value : origem === 'etiqueta' ? q('#origemEtiqueta').value : '' },
+        origem: { tipo: origem, valores: origem === 'grupos' ? selGrupos.valor() : [] },
+        excluirEtiquetas: selExcl.valor(),
         etapas,
         acoes,
         aoResponder: { addAba: q('#respAba').value, addEtiqueta: q('#respEtiq').value },
@@ -1589,9 +1691,15 @@
       <div class="secao-t">Descadastro</div>
       <label class="campo">Palavras (separe por vírgula)<input type="text" id="palavrasSair" value="${esc(c.palavrasSair.join(', '))}"></label>
       <div class="secao-t">Backup</div>
-      <div class="dica" style="margin-bottom:8px">Tudo fica só neste computador. Baixe um backup para não perder ou para levar a outro computador.</div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec peq" id="baixar">Baixar backup</button>
-        <label class="btn sec peq" style="cursor:pointer">Restaurar backup<input type="file" id="restaurar" accept=".json" class="oculto"></label></div>`;
+      <div class="dica" style="margin-bottom:8px">Tudo fica só neste computador. Baixe um backup para não perder ou para levar a outro computador. Escolha o que vai no arquivo:</div>
+      <div class="bk-lista">${PARTES_BACKUP.map(([v, t]) => `<label class="check"><input type="checkbox" name="bk" value="${v}" checked> ${t}</label>`).join('')}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sec peq" id="baixar">Baixar backup</button>
+        <label class="btn sec peq" style="cursor:pointer">Restaurar backup<input type="file" id="restaurar" accept=".json" class="oculto"></label></div>
+      <div id="bkRestaurar"></div>
+      <div class="secao-t">Planilha de contatos (CSV)</div>
+      <div class="dica" style="margin-bottom:8px">Escolha etiquetas e/ou abas e baixe nome + telefone dos contatos. Abre no Excel e no Google Planilhas.</div>
+      <div id="csvGrupos"></div>
+      <button class="btn sec peq" id="baixarCSV" style="margin-top:8px">📄 Baixar planilha</button>`;
     rodape(`<button class="btn" id="salvar">Salvar configurações</button>`);
     const q = (s) => corpo.querySelector(s);
     $('#salvar').onclick = async () => {
@@ -1620,30 +1728,121 @@
       await VF.gravar('config', novo);
       avisar('Configurações salvas.', 'ok');
     };
-    q('#baixar').onclick = async () => {
-      const tudo = await chrome.storage.local.get(null);
-      delete tudo.motorTrava;
+    const baixarArquivo = (conteudo, nome, tipo) => {
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(new Blob([JSON.stringify({ app: 'vendaflow', versao: 1, em: Date.now(), dados: tudo })], { type: 'application/json' }));
-      a.download = `vendaflow-backup-${VF.hoje()}.json`;
+      a.href = URL.createObjectURL(new Blob([conteudo], { type: tipo }));
+      a.download = nome;
       a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    };
+    q('#baixar').onclick = async () => {
+      const escolhidas = [...corpo.querySelectorAll('input[name=bk]:checked')].map((x) => x.value);
+      if (!escolhidas.length) return avisar('Marque pelo menos uma parte para o backup.', 'erro');
+      const tudo = await chrome.storage.local.get(null);
+      const dados = {};
+      Object.keys(tudo).forEach((k) => escolhidas.includes(parteDaChave(k)) && (dados[k] = tudo[k]));
+      // Junta só os arquivos (áudio, vídeo, imagem) usados pelo que foi escolhido
+      for (const [, id] of JSON.stringify(dados).matchAll(/"midiaId":"([^"]+)"/g)) if (tudo['midia:' + id]) dados['midia:' + id] = tudo['midia:' + id];
+      baixarArquivo(JSON.stringify({ app: 'vendaflow', versao: 2, em: Date.now(), partes: escolhidas, dados }), `vendaflow-backup-${VF.hoje()}.json`, 'application/json');
+      avisar('Backup baixado (pasta Downloads).', 'ok');
     };
     q('#restaurar').onchange = async (e) => {
       const f = e.target.files[0];
+      e.target.value = '';
       if (!f) return;
+      const caixa = q('#bkRestaurar');
       try {
         const j = JSON.parse(await f.text());
         if (j.app !== 'vendaflow' || !j.dados) throw new Error('Este arquivo não é um backup do VendaFlow.');
-        if (!confirm('Substituir tudo deste computador pelo backup?')) return;
-        await chrome.storage.local.clear();
-        await chrome.storage.local.set(j.dados);
-        avisar('Backup restaurado.', 'ok');
-        desenharLateral();
+        const presentes = PARTES_BACKUP.filter(([v]) => Object.keys(j.dados).some((k) => parteDaChave(k) === v));
+        if (!presentes.length) throw new Error('O backup está vazio.');
+        caixa.innerHTML = `<div class="cartao" style="margin-top:10px"><b>O que restaurar de "${esc(f.name)}"?</b>
+          <div class="dica" style="margin:4px 0 6px">O que você marcar SUBSTITUI o que está neste computador. O resto fica como está.</div>
+          ${presentes.map(([v, t]) => `<label class="check"><input type="checkbox" name="rs" value="${v}" checked> ${t}</label>`).join('')}
+          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn peq" id="rsOk">Restaurar</button><button class="btn sec peq" id="rsCancelar">Cancelar</button></div></div>`;
+        q('#rsCancelar').onclick = () => (caixa.innerHTML = '');
+        q('#rsOk').onclick = async () => {
+          const sel = [...caixa.querySelectorAll('input[name=rs]:checked')].map((x) => x.value);
+          if (!sel.length) return avisar('Marque pelo menos uma parte.', 'erro');
+          const atual = await chrome.storage.local.get(null);
+          await chrome.storage.local.remove(Object.keys(atual).filter((k) => sel.includes(parteDaChave(k))));
+          const novo = {};
+          Object.keys(j.dados).forEach((k) => (sel.includes(parteDaChave(k)) || k.startsWith('midia:')) && (novo[k] = j.dados[k]));
+          await chrome.storage.local.set(novo);
+          await recarregarDados();
+          VF.limparMidiasOrfas();
+          avisar('Backup restaurado.', 'ok');
+          desenharLateral();
+        };
       } catch (er) {
         avisar(er.message, 'erro');
       }
     };
+    const selCSV = seletorMulti(
+      q('#csvGrupos'),
+      () => [
+        ...etiquetas.map((e) => ({ id: 'e:' + e.id, nome: e.nome, cor: e.cor, grupo: 'Etiquetas do WhatsApp', extra: e.total })),
+        ...abas.filter((a) => a.tipo !== 'etiqueta').map((a) => ({ id: 'a:' + a.id, nome: a.nome, cor: a.cor, grupo: 'Abas', extra: (a.chats || []).length })),
+      ],
+      [],
+      null,
+      'Nenhuma escolhida'
+    );
+    q('#baixarCSV').onclick = async () => {
+      const grupos = selCSV.valor();
+      if (!grupos.length) return avisar('Escolha pelo menos uma etiqueta ou aba.', 'erro');
+      const botao = q('#baixarCSV');
+      botao.disabled = true;
+      try {
+        const contatos = new Map(); // número -> { nome, grupos }
+        const juntar = (ids, nomeWA, grupo) => {
+          const cus = ids.find((x) => x.endsWith('@c.us'));
+          const numero = VF.numeroDoId(cus) || (cus || ids[0] || '').split('@')[0];
+          if (!numero) return;
+          const c = contatos.get(numero) || { nome: nomeDe(ids, nomeWA), grupos: [] };
+          if (!c.nome) c.nome = nomeDe(ids, nomeWA);
+          c.grupos.push(grupo);
+          contatos.set(numero, c);
+        };
+        for (const g of grupos) {
+          if (g.startsWith('e:')) {
+            const et = etiquetas.find((x) => x.id === g.slice(2));
+            (await rpc('listarChats', { etiqueta: g.slice(2) })).forEach((c) => juntar([c.id], c.nome, et ? et.nome : 'Etiqueta'));
+          } else {
+            const aba = abas.find((x) => x.id === g.slice(2));
+            (aba ? aba.chats || [] : []).forEach((c) => juntar(c.ids, c.nome, aba.nome));
+          }
+        }
+        if (!contatos.size) return avisar('Nenhum contato nesses grupos.', 'erro');
+        const cel = (x) => `"${String(x || '').replace(/"/g, '""')}"`;
+        const linhas = [['Nome', 'Telefone', 'Grupos'].map(cel).join(';')];
+        contatos.forEach((c, numero) => linhas.push([c.nome, numero, [...new Set(c.grupos)].join(', ')].map(cel).join(';')));
+        baixarArquivo('﻿' + linhas.join('\r\n'), `vendaflow-contatos-${VF.hoje()}.csv`, 'text/csv;charset=utf-8');
+        avisar(`Planilha com ${contatos.size} contatos baixada (pasta Downloads).`, 'ok');
+      } catch (er) {
+        avisar('Não consegui montar a planilha: ' + er.message, 'erro');
+      } finally {
+        botao.disabled = false;
+      }
+    };
   };
+
+  // Partes do backup (o vendedor escolhe quais vão no arquivo)
+  const PARTES_BACKUP = [
+    ['respostas', 'Respostas rápidas, scripts e categorias (com os áudios, vídeos e imagens)'],
+    ['abas', 'Abas, com os leads de cada uma'],
+    ['contatos', 'Contatos: nomes trocados, anotações e Não perturbe'],
+    ['campanhas', 'Campanhas de envio em massa (histórico)'],
+    ['config', 'Configurações'],
+  ];
+  function parteDaChave(k) {
+    if (k === 'respostas' || k === 'scripts' || k === 'categorias') return 'respostas';
+    if (k === 'abas') return 'abas';
+    if (k === 'nomes' || k === 'naoPerturbe' || k.startsWith('nota:')) return 'contatos';
+    if (k === 'campanhas' || k.startsWith('campanha:')) return 'campanhas';
+    if (k === 'config') return 'config';
+    return null; // mídia e dados internos (motor, cache) não contam como parte
+  }
 
   // =====================================================================
   // Barra superior: pílulas das abas
@@ -1736,6 +1935,154 @@
     if (bloco.parentElement) bloco.parentElement.insertBefore(raioWA, bloco);
   }
   setInterval(encaixarRaio, 1200);
+
+  // ---- Cabeçalho da conversa: lápis ao lado do nome e botão de abas ao lado da etiqueta ----
+  const SVG_LAPIS = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>';
+  const SVG_PASTA = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/></svg>';
+  const nomeWABtn = document.createElement('span');
+  nomeWABtn.id = 'vf-nome-wa';
+  nomeWABtn.title = 'Mudar o nome deste contato (VendaFlow)';
+  nomeWABtn.style.cssText = 'display:inline-flex;align-items:center;gap:5px;margin-left:8px;height:26px;padding:0 7px;border-radius:13px;cursor:pointer;color:#8696a0;font-size:13px;font-weight:500;vertical-align:middle;flex:none;white-space:nowrap;';
+  nomeWABtn.innerHTML = SVG_LAPIS + '<span></span>';
+  const abasWABtn = document.createElement('span');
+  abasWABtn.id = 'vf-abas-wa';
+  abasWABtn.title = 'Colocar este contato em abas (VendaFlow)';
+  abasWABtn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;margin-right:8px;border-radius:18px;border:1.5px solid rgba(134,150,160,.45);cursor:pointer;color:inherit;font-size:14px;font-weight:500;flex:none;white-space:nowrap;box-sizing:border-box;';
+  abasWABtn.innerHTML = SVG_PASTA + '<span>Abas</span>';
+  for (const b of [nomeWABtn, abasWABtn]) {
+    b.addEventListener('mousedown', (e) => e.stopPropagation(), true);
+    b.addEventListener('mouseenter', () => (b.style.background = 'rgba(134,150,160,.15)'));
+    b.addEventListener('mouseleave', () => (b.style.background = ''));
+  }
+  let cab = { chatId: null, ids: [] };
+  async function idsDoCabecalho() {
+    if (!chatAtual || chatAtual.grupo) return null;
+    if (cab.chatId !== chatAtual.id) cab = { chatId: chatAtual.id, ids: await equivalentes(chatAtual.id) };
+    return cab.ids;
+  }
+  async function atualizarCabecalho() {
+    const ids = await idsDoCabecalho();
+    const meu = ids ? nomeDe(ids, '') : '';
+    nomeWABtn.lastChild.textContent = meu;
+    nomeWABtn.style.color = meu ? '#21c063' : '#8696a0';
+    nomeWABtn.title = meu ? `Nome no VendaFlow: ${meu} (clique para mudar)` : 'Mudar o nome deste contato (VendaFlow)';
+    const minhas = ids ? abas.filter((a) => a.tipo !== 'etiqueta' && abaTem(a, ids)) : [];
+    abasWABtn.lastChild.innerHTML = minhas.length
+      ? minhas.slice(0, 3).map((a) => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${esc(a.cor)};margin-right:4px"></span>`).join('') + esc(minhas.length === 1 ? minhas[0].nome : minhas.length + ' abas')
+      : 'Abas';
+  }
+  nomeWABtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const ids = await idsDoCabecalho();
+    if (!ids) return avisar('Abra uma conversa (que não seja grupo).');
+    const nomeWA = chatAtual.nome || '';
+    const atual = nomeDe(ids, '') || nomeWA;
+    const pop = $('#pop');
+    pop.innerHTML = `<div class="pop-form"><b>Nome do contato</b>
+      <input type="text" id="popNome" value="${esc(atual)}" placeholder="Nome do contato">
+      <div class="nome-acoes"><button type="button" class="btn peq" data-ok>Salvar</button>${nomeDe(ids, '') ? '<button type="button" class="link-btn" data-volta>Voltar ao nome do WhatsApp</button>' : ''}</div>
+      <div class="dica">Vale em {nome} e {primeiro_nome}. Fica só na extensão.${nomeWA ? `<br>No WhatsApp: ${esc(nomeWA)}` : ''}</div></div>`;
+    posicionarPop(nomeWABtn);
+    const inp = pop.querySelector('#popNome');
+    inp.focus();
+    inp.select();
+    const salvar = async (valor) => {
+      fecharPop();
+      await salvarNome(ids, valor === nomeWA ? '' : valor);
+      avisar(valor && valor !== nomeWA ? `Nome trocado para "${valor}".` : 'Voltou ao nome do WhatsApp.', 'ok', 2500);
+      atualizarCabecalho();
+    };
+    inp.onkeydown = (k) => {
+      k.stopPropagation();
+      if (k.key === 'Enter') salvar(inp.value.trim());
+      if (k.key === 'Escape') fecharPop();
+    };
+    pop.onclick = (ev) => {
+      if (ev.target.closest('[data-ok]')) salvar(inp.value.trim());
+      if (ev.target.closest('[data-volta]')) salvar('');
+    };
+  });
+  abasWABtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const ids = await idsDoCabecalho();
+    if (!ids) return avisar('Abra uma conversa (que não seja grupo).');
+    const manuais = abas.filter((a) => a.tipo !== 'etiqueta');
+    const nome = nomeDe(ids, chatAtual.nome);
+    abrirPopMulti(
+      abasWABtn,
+      manuais.map((a) => ({ id: a.id, nome: a.nome, cor: a.cor })),
+      new Set(manuais.filter((a) => abaTem(a, ids)).map((a) => a.id)),
+      async (sel, id, incluir) => {
+        await alterarAba(id, ids, nome, incluir);
+        abas = await VF.ler('abas', []);
+        atualizarCabecalho();
+      },
+      { texto: '➕ Criar nova aba…', acao: () => abrirLateral('abas', 'nova') }
+    );
+  });
+  const SELETORES_BUSCA = '[data-icon="search-alt"],[data-icon="search"],[data-icon="search-refreshed"],[data-icon="wds-ic-search"],[aria-label="Pesquisar"],[aria-label="Search"],[aria-label="Pesquisar…"]';
+  function encaixarCabecalho() {
+    const header = document.querySelector('#main header');
+    if (!header) return;
+    if (!chatAtual || chatAtual.grupo) {
+      nomeWABtn.remove();
+      abasWABtn.remove();
+      return;
+    }
+    // Lápis logo depois do nome
+    if (!header.contains(nomeWABtn)) {
+      const titulo = header.querySelector('span[dir="auto"]');
+      if (titulo) titulo.after(nomeWABtn);
+    }
+    // Botão de abas à esquerda da etiqueta (ou da lupa, se o contato não tiver etiqueta)
+    const busca = header.querySelector(SELETORES_BUSCA);
+    if (!busca) return;
+    let bloco = busca.closest('button,[role="button"]') || busca;
+    while (bloco.parentElement && bloco.parentElement !== header && bloco.parentElement.childElementCount === 1) bloco = bloco.parentElement;
+    let pai = bloco.parentElement;
+    let antes = bloco;
+    const nomesEtq = new Set(etiquetas.map((t) => t.nome));
+    for (let sobe = pai, filho = bloco, n = 0; sobe && sobe !== header.parentElement && n < 6; filho = sobe, sobe = sobe.parentElement, n++) {
+      const chip = [...sobe.querySelectorAll('span,div')].find((el) => !el.closest('#vf-abas-wa') && el.childElementCount === 0 && nomesEtq.has(el.textContent.trim()) && !filho.contains(el) && !el.closest('span[dir="auto"]'));
+      if (chip) {
+        let c = chip;
+        while (c.parentElement && c.parentElement !== sobe) c = c.parentElement;
+        pai = sobe;
+        antes = c;
+        break;
+      }
+    }
+    if (abasWABtn.parentElement !== pai || abasWABtn.nextElementSibling !== antes) pai.insertBefore(abasWABtn, antes);
+  }
+  setInterval(encaixarCabecalho, 1200);
+
+  // ---- Menus do WhatsApp (opções da mensagem...) que passam por baixo do painel: empurra para a esquerda ----
+  function empurrarMenus() {
+    if ($('#lateral').classList.contains('oculto')) return;
+    const limite = window.innerWidth - 380 - 8;
+    const feitos = new Set();
+    document.querySelectorAll('[role="menuitem"],[data-animate-dropdown-item],[role="menu"]').forEach((item) => {
+      let el = item.parentElement;
+      for (let n = 0; el && el !== document.body && n < 12; el = el.parentElement, n++) {
+        if (el.id === 'app' || el.id === 'main') return;
+        const pos = getComputedStyle(el).position;
+        if (pos === 'fixed' || pos === 'absolute') break;
+      }
+      if (!el || el === document.body || feitos.has(el)) return;
+      feitos.add(el);
+      const r = el.getBoundingClientRect();
+      if (r.right <= limite || r.width === 0) return;
+      const atual = parseFloat(el.dataset.vfDx || '0');
+      const dx = Math.min(atual, Math.max(atual - (r.right - limite), atual - (r.left - 68)));
+      el.style.translate = dx + 'px 0px';
+      el.dataset.vfDx = String(dx);
+    });
+  }
+  const agendarMenus = () => [0, 40, 120, 250, 500, 900].forEach((ms) => setTimeout(empurrarMenus, ms));
+  document.addEventListener('click', agendarMenus, true);
+  document.addEventListener('contextmenu', agendarMenus, true);
 
   // ---- Atalho "/" no campo de mensagem ----
   let sugestoes = [];
@@ -2096,6 +2443,7 @@
     const chaves = Object.keys(mud);
     if (chaves.some((k) => k === 'campanhas' || k.startsWith('campanha:'))) campanhasMudaram();
     if (mud.nomes) nomes = mud.nomes.newValue || {};
+    if (mud.nomes || mud.abas) setTimeout(atualizarCabecalho, 50);
     if (mud.abas || mud.respostas || mud.scripts || mud.categorias) {
       await recarregarDados();
       if (mud.abas && abaSelecionada !== 'todas') {
