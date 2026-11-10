@@ -126,6 +126,19 @@
     if (mexeu) await VF.gravar('abas', lista);
   }
 
+  // Troca o nome: guarda na extensão e salva o contato no próprio WhatsApp (aparece no topo e na lista)
+  async function trocarNome(ids, chatId, valor) {
+    await salvarNome(ids, valor);
+    if (!valor) return avisar('Voltou a usar o nome do WhatsApp nas mensagens.', 'ok', 3000);
+    const id = ids.find((x) => x.endsWith('@c.us')) || chatId;
+    try {
+      await rpc('salvarContato', id, valor);
+      avisar(`Contato salvo no WhatsApp como "${valor}".`, 'ok', 3500);
+    } catch (e) {
+      avisar(`O nome "${valor}" vale nas mensagens da extensão, mas o WhatsApp não deixou salvar o contato (${e.message}). Use "Salvar contato" do próprio WhatsApp.`, 'erro', 9000);
+    }
+  }
+
   async function carregarEtiquetas() {
     try {
       etiquetas = await rpc('etiquetas');
@@ -457,7 +470,7 @@
         caixa.innerHTML = `<input type="text" id="novoNome" value="${esc(nomeMostrado === numero ? '' : nomeMostrado)}" placeholder="Nome do contato">
           <div class="nome-acoes"><button type="button" class="btn peq" id="salvarNome">Salvar</button><button type="button" class="btn sec peq" id="cancelarNome">Cancelar</button>
           ${nomeMeu ? `<button type="button" class="link-btn" id="restaurarNome">Voltar ao nome do WhatsApp</button>` : ''}</div>
-          <div class="dica">Esse é o nome usado em {nome} e {primeiro_nome} nas mensagens. Fica só na extensão.</div>`;
+          <div class="dica">Salva o contato no WhatsApp com esse nome e vale em {nome} e {primeiro_nome}.</div>`;
         const inp = caixa.querySelector('#novoNome');
         inp.focus();
         inp.select();
@@ -471,10 +484,7 @@
       if (b.id === 'cancelarNome') return desenharLateral();
       if (b.id === 'salvarNome' || b.id === 'restaurarNome') {
         const valor = b.id === 'salvarNome' ? corpo.querySelector('#novoNome').value.trim() : '';
-        return salvarNome(ids, valor === nomeWA ? '' : valor).then(() => {
-          avisar(valor && valor !== nomeWA ? `Nome trocado para "${valor}".` : 'Voltou ao nome do WhatsApp.', 'ok', 2500);
-          desenharLateral();
-        });
+        return trocarNome(ids, chatAtual.id, valor).then(() => desenharLateral());
       }
     };
     let t;
@@ -1982,15 +1992,14 @@
     pop.innerHTML = `<div class="pop-form"><b>Nome do contato</b>
       <input type="text" id="popNome" value="${esc(atual)}" placeholder="Nome do contato">
       <div class="nome-acoes"><button type="button" class="btn peq" data-ok>Salvar</button>${nomeDe(ids, '') ? '<button type="button" class="link-btn" data-volta>Voltar ao nome do WhatsApp</button>' : ''}</div>
-      <div class="dica">Vale em {nome} e {primeiro_nome}. Fica só na extensão.${nomeWA ? `<br>No WhatsApp: ${esc(nomeWA)}` : ''}</div></div>`;
+      <div class="dica">Salva o contato no WhatsApp com esse nome e vale em {nome} e {primeiro_nome}.${nomeWA ? `<br>No WhatsApp: ${esc(nomeWA)}` : ''}</div></div>`;
     posicionarPop(nomeWABtn);
     const inp = pop.querySelector('#popNome');
     inp.focus();
     inp.select();
     const salvar = async (valor) => {
       fecharPop();
-      await salvarNome(ids, valor === nomeWA ? '' : valor);
-      avisar(valor && valor !== nomeWA ? `Nome trocado para "${valor}".` : 'Voltou ao nome do WhatsApp.', 'ok', 2500);
+      await trocarNome(ids, chatAtual.id, valor);
       atualizarCabecalho();
     };
     inp.onkeydown = (k) => {

@@ -166,6 +166,15 @@
       return true;
     },
 
+    // Salva o contato no WhatsApp (igual ao "Salvar contato" do próprio WhatsApp), com o nome escolhido
+    async salvarContato(id, nome) {
+      const partes = String(nome || '').trim().split(/\s+/);
+      const primeiro = partes.shift();
+      if (!primeiro) throw new Error('Nome vazio');
+      await WPP.contact.save(id, primeiro, { lastName: partes.join(' '), syncAdressBook: true });
+      return true;
+    },
+
     async colarTexto(texto, id) {
       await WPP.chat.setInputText(texto, id || undefined);
       return true;
