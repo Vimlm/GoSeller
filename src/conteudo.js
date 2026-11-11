@@ -333,6 +333,86 @@
       aoMudar(sel, o.id, sel.has(o.id));
     };
   }
+  // Arrastar para reordenar: clicar e segurar em qualquer parte do item e mover.
+  // O clique simples continua igual — só vira arrasto depois que o mouse anda alguns pixels.
+  // opcoes: eixo 'y'|'x', pode(item) liga/desliga, sobre(el, item) trata alvos extras, aoSoltar(item)
+  function ordenarArrastando(lista, seletor, opcoes) {
+    const { eixo = 'y', pode = () => true, sobre = null, aoSoltar } = opcoes;
+    const raiz = lista.getRootNode();
+    let item = null, x0 = 0, y0 = 0, ativo = false, rolagem = null;
+    const rolavel = (el) => {
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        const s = getComputedStyle(p)[eixo === 'y' ? 'overflowY' : 'overflowX'];
+        if (/(auto|scroll)/.test(s)) return p;
+      }
+      return null;
+    };
+    const mover = (e) => {
+      if (!item) return;
+      if (!ativo) {
+        if (Math.hypot(e.clientX - x0, e.clientY - y0) < 6) return;
+        ativo = true;
+        rolagem = rolavel(item);
+        item.classList.add('arrastando');
+        lista.classList.add('ordenando');
+        getSelection()?.removeAllRanges();
+      }
+      e.preventDefault();
+      // Rola sozinho perto da borda
+      if (rolagem) {
+        const r = rolagem.getBoundingClientRect();
+        const p = eixo === 'y' ? e.clientY : e.clientX;
+        const [ini, fim] = eixo === 'y' ? [r.top, r.bottom] : [r.left, r.right];
+        if (p < ini + 40) rolagem[eixo === 'y' ? 'scrollTop' : 'scrollLeft'] -= 12;
+        else if (p > fim - 40) rolagem[eixo === 'y' ? 'scrollTop' : 'scrollLeft'] += 12;
+      }
+      const el = (raiz.elementFromPoint ? raiz : document).elementFromPoint(e.clientX, e.clientY);
+      if (!el || !lista.contains(el)) return;
+      const alvo = el.closest(seletor);
+      if (alvo && alvo !== item && lista.contains(alvo) && pode(alvo)) {
+        const r = alvo.getBoundingClientRect();
+        const antes = eixo === 'y' ? e.clientY < r.top + r.height / 2 : e.clientX < r.left + r.width / 2;
+        alvo.parentElement.insertBefore(item, antes ? alvo : alvo.nextSibling);
+      } else if (!alvo && sobre) sobre(el, item);
+    };
+    const semSelecao = (e) => item && e.preventDefault();
+    const soltar = () => {
+      window.removeEventListener('selectstart', semSelecao, true);
+      window.removeEventListener('pointermove', mover, true);
+      window.removeEventListener('pointerup', soltar, true);
+      window.removeEventListener('pointercancel', soltar, true);
+      const it = item;
+      item = null;
+      if (!ativo || !it) return;
+      ativo = false;
+      it.classList.remove('arrastando');
+      lista.classList.remove('ordenando');
+      // O clique que vem logo depois de soltar não deve abrir/selecionar nada
+      const engolir = (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+      };
+      window.addEventListener('click', engolir, true);
+      setTimeout(() => window.removeEventListener('click', engolir, true), 80);
+      Promise.resolve(aoSoltar(it)).catch((err) => avisar('Não consegui salvar a ordem: ' + err.message, 'erro'));
+    };
+    lista.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const it = e.target.closest(seletor);
+      if (!it || !lista.contains(it) || !pode(it)) return;
+      const interno = e.target.closest('button, input, textarea, select, a, label, [contenteditable]');
+      if (interno && interno !== it && it.contains(interno)) return; // botões do próprio item continuam normais
+      item = it;
+      x0 = e.clientX;
+      y0 = e.clientY;
+      ativo = false;
+      window.addEventListener('selectstart', semSelecao, true);
+      window.addEventListener('pointermove', mover, true);
+      window.addEventListener('pointerup', soltar, true);
+      window.addEventListener('pointercancel', soltar, true);
+    });
+  }
+
   // Seletor compacto: pílulas do que foi escolhido + botão "Adicionar"
   function seletorMulti(el, opcoesFn, inicial, aoMudar, vazio = 'Nenhuma escolhida') {
     const sel = new Set(inicial || []);
@@ -421,8 +501,7 @@
     if (!secaoAtual) return;
     rodape('');
     const corpo = $('#corpo');
-    corpo.onclick = corpo.onchange = corpo.oninput = null; // tira os ouvintes da tela anterior
-    corpo.ondragstart = corpo.ondragover = corpo.ondragend = null;
+    corpo.onclick = corpo.onchange = corpo.oninput = corpo.onkeydown = null; // tira os ouvintes da tela anterior
     try {
       await telas[secaoAtual](corpo);
     } catch (e) {
@@ -575,6 +654,7 @@
         if (todas.length > 3) todas.slice(1).forEach((p) => estadoUI.fechadas.add(p));
       }
       const nomes = estadoUI.filtroTipo === 'usadas' ? Object.keys(pastas) : Object.keys(pastas).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+      alvo.classList.toggle('pode-ordenar', semFiltro);
       alvo.innerHTML = nomes
         .map((p) => {
           const aberta = f || !estadoUI.fechadas.has(p);
@@ -586,6 +666,50 @@
         .join('');
     };
     desenharLista();
+    // Segurar e arrastar uma resposta muda a ordem (e, se soltar em outra categoria, muda a categoria)
+    const listaResp = corpo.querySelector('#listaResp');
+    ordenarArrastando(listaResp, '[data-resp]', {
+      pode: () => listaResp.classList.contains('pode-ordenar') && !estadoUI.editEnvio,
+      sobre: (el, item) => {
+        const topo = el.closest('.cat-topo');
+        if (topo && topo.parentElement.classList.contains('aberta')) return topo.after(item);
+        const vazia = el.closest('.cat-vazia');
+        if (vazia) vazia.before(item);
+      },
+      aoSoltar: async (item) => {
+        const pasta = item.closest('.categoria')?.querySelector('.cat-topo')?.dataset.pasta;
+        const ordem = [...listaResp.querySelectorAll('[data-resp]')].map((x) => x.dataset.resp);
+        const lista = await VF.ler('respostas', []);
+        const r = lista.find((x) => x.id === item.dataset.resp);
+        if (r && pasta !== undefined) r.pasta = pasta === 'Sem categoria' ? '' : pasta;
+        // Só as que estão na tela mudam de lugar; as de categorias fechadas ficam onde estavam
+        const vagas = lista.map((x, i) => (ordem.includes(x.id) ? i : -1)).filter((i) => i >= 0);
+        const novas = ordem.map((id) => lista.find((x) => x.id === id)).filter(Boolean);
+        const final = [...lista];
+        vagas.forEach((i, k) => (final[i] = novas[k]));
+        respostas = final;
+        desenharLista();
+        await VF.gravar('respostas', final);
+      },
+    });
+    corpo.oninput = (e) => {
+      const i = e.target.dataset?.ee;
+      const ed = estadoUI.editEnvio;
+      if (i === undefined || !ed) return;
+      const et = ed.etapas[Number(i)];
+      et.tipo === 'texto' ? (et.texto = e.target.value) : (et.legenda = e.target.value);
+    };
+    corpo.onkeydown = (e) => {
+      if (!e.target.dataset?.ee) return;
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        estadoUI.editEnvio = null;
+        desenharLista();
+      } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        enviarEditado();
+      }
+    };
     corpo.querySelector('#busca').oninput = (e) => {
       estadoUI.busca = e.target.value;
       desenharLista();
@@ -618,9 +742,26 @@
       const r = respostas.find((x) => x.id === alvo.closest('[data-resp]')?.dataset.resp);
       if (!r) return;
       if (alvo.dataset.acao === 'enviar') return usarResposta(r, 'enviar');
-      if (alvo.dataset.acao === 'ver') {
-        estadoUI.previa.has(r.id) ? estadoUI.previa.delete(r.id) : estadoUI.previa.add(r.id);
+      if (alvo.dataset.acao === 'cancelarEnvio') {
+        estadoUI.editEnvio = null;
         return desenharLista();
+      }
+      if (alvo.dataset.acao === 'enviarEditado') return enviarEditado();
+      if (alvo.dataset.acao === 'editarEnvio') {
+        if (estadoUI.editEnvio?.id === r.id) {
+          estadoUI.editEnvio = null;
+          return desenharLista();
+        }
+        return abrirEditarEnvio(r).then(() => {
+          if (!estadoUI.editEnvio) return;
+          estadoUI.fechadas.delete(r.pasta || 'Sem categoria');
+          desenharLista();
+          const t = corpo.querySelector('.editar-envio .ee-txt') || corpo.querySelector('.editar-envio textarea');
+          if (t) {
+            t.focus();
+            t.setSelectionRange(t.value.length, t.value.length);
+          }
+        });
       }
       if (alvo.dataset.acao === 'mais') {
         abrirPop(alvo, [
@@ -681,24 +822,85 @@
     ]);
   }
 
+  function htmlEditarEnvio(ed) {
+    const ICM = { audio: '🎤', video: '🎬', image: '🖼️', document: '📄' };
+    return `<div class="editar-envio">
+      <div class="ee-topo">Editar antes de enviar${ed.contato ? ` para <b>${esc(ed.contato)}</b>` : ''}</div>
+      ${ed.etapas
+        .map((e, i) =>
+          e.tipo === 'texto'
+            ? `<textarea class="ee-txt" data-ee="${i}" rows="3" placeholder="(mensagem vazia não é enviada)">${esc(e.texto)}</textarea>`
+            : `<div class="ee-arq">${ICM[e.tipoMidia] || '📄'} ${esc(e.nomeArquivo || VF.TIPOS_MIDIA[e.tipoMidia])}</div>${
+                e.tipoMidia === 'audio' ? '' : `<textarea data-ee="${i}" rows="1" placeholder="Legenda (opcional)">${esc(e.legenda || '')}</textarea>`
+              }`
+        )
+        .join('')}
+      <div class="dica">Vale só para este envio — a resposta salva continua igual. <b>Ctrl+Enter</b> envia, <b>Esc</b> cancela.</div>
+      <div class="ee-botoes"><button class="btn sec peq" data-acao="cancelarEnvio">Cancelar</button><button class="btn peq" data-acao="enviarEditado">${IC.enviar} Enviar</button></div>
+    </div>`;
+  }
+
   function htmlItemResposta(r) {
-    const aberta = estadoUI.previa.has(r.id);
-    const previa = aberta
-      ? `<div class="previa-resp">${r.etapas
-          .map((e) =>
-            e.tipo === 'texto'
-              ? `<div class="bolha">${esc(e.texto)}</div>`
-              : `<div class="arq">${{ audio: '🎤', video: '🎬', image: '🖼️', document: '📄' }[e.tipoMidia]} ${esc(e.nomeArquivo || VF.TIPOS_MIDIA[e.tipoMidia])}${e.legenda ? ' — ' + esc(e.legenda).slice(0, 80) : ''}</div>`
-          )
-          .join('')}</div>`
-      : '';
-    return `<div data-resp="${esc(r.id)}"><div class="item">
+    const ed = estadoUI.editEnvio && estadoUI.editEnvio.id === r.id ? estadoUI.editEnvio : null;
+    return `<div data-resp="${esc(r.id)}" class="resp-arrastavel ${ed ? 'editando' : ''}"><div class="item">
       <span class="tipo">${IC[r.etapas.length > 1 ? 'sequencia' : tipoDaResposta(r)] || IC.texto}</span>
       <span class="nome" title="${esc(resumoResposta(r)).slice(0, 300)}">${esc(r.nome)}${r.atalho ? `<code>/${esc(r.atalho)}</code>` : ''}</span>
       <button class="icone-btn" data-acao="mais" title="Mais opções">${IC.mais}</button>
-      <button class="icone-btn" data-acao="ver" title="Ver conteúdo">${IC.olho}</button>
+      <button class="icone-btn ${ed ? 'ativo' : ''}" data-acao="editarEnvio" title="Editar antes de enviar">${IC.lapis}</button>
       <button class="icone-btn enviar" data-acao="enviar" title="Enviar na conversa aberta">${IC.enviar}</button>
-    </div>${previa}</div>`;
+    </div>${ed ? htmlEditarEnvio(ed) : ''}</div>`;
+  }
+
+  // Abre o editor embutido com o texto já personalizado para o contato da conversa aberta
+  async function abrirEditarEnvio(r) {
+    let chat;
+    try {
+      chat = await rpc('chatAtivo');
+    } catch (e) {
+      return avisar(e.message, 'erro');
+    }
+    if (!chat) return avisar('Abra uma conversa primeiro.');
+    const cfg = await VF.config();
+    const dados = { nome: nomeDe(chat.id, chat.nome), vendedor: cfg.nomeVendedor };
+    estadoUI.editEnvio = {
+      id: r.id,
+      chatId: chat.id,
+      contato: dados.nome,
+      etapas: JSON.parse(JSON.stringify(r.etapas)).map((e) =>
+        e.tipo === 'texto' ? { ...e, texto: VF.montarTexto(e.texto, dados) } : { ...e, legenda: VF.montarTexto(e.legenda || '', dados) }
+      ),
+    };
+  }
+
+  async function enviarEditado() {
+    const ed = estadoUI.editEnvio;
+    if (!ed) return;
+    let chat;
+    try {
+      chat = await rpc('chatAtivo');
+    } catch (e) {
+      return avisar(e.message, 'erro');
+    }
+    if (!chat) return avisar('Abra uma conversa primeiro.');
+    if (chat.id !== ed.chatId && !confirm(`Você trocou de conversa.\n\nEste texto foi preparado para ${ed.contato || 'outro contato'}. Enviar para ${nomeDe(chat.id, chat.nome) || 'a conversa aberta'} mesmo assim?`))
+      return;
+    const etapas = ed.etapas.filter((e) => e.tipo !== 'texto' || e.texto.trim());
+    if (!etapas.length) return avisar('Não sobrou nenhuma mensagem para enviar.', 'erro');
+    estadoUI.editEnvio = null;
+    desenharLateral();
+    const cfg = await VF.config();
+    try {
+      // O texto já está pronto: as variáveis foram trocadas ao abrir o editor
+      await enviarEtapas(chat.id, etapas, { nome: nomeDe(chat.id, chat.nome), vendedor: cfg.nomeVendedor }, { digitacao: cfg.digitacaoNasRespostas });
+      const lista = await VF.ler('respostas', []);
+      const x = lista.find((y) => y.id === ed.id);
+      if (x) {
+        x.usos = (x.usos || 0) + 1;
+        await VF.gravar('respostas', lista);
+      }
+    } catch (e) {
+      avisar('Não consegui enviar: ' + e.message, 'erro');
+    }
   }
 
   async function duplicarResposta(r) {
@@ -1504,14 +1706,13 @@
     if (visao) return telaEditarAba(corpo, visao === 'nova' ? null : visao.slice(7));
     corpo.innerHTML = `
       <div class="lat-titulo"><h2>Abas</h2><button class="btn peq" id="nova">${IC.mais2} Nova aba</button></div>
-      <div class="dica" style="margin-bottom:12px">As abas ficam na barra de cima e separam as conversas. Arraste pela alça <b>⋮⋮</b> para mudar a ordem.
+      <div class="dica" style="margin-bottom:12px">As abas ficam na barra de cima e separam as conversas. Para mudar a ordem, <b>clique, segure e arraste</b> a aba (aqui ou lá em cima).
         Atalho: clique com o <b>botão direito</b> numa aba lá em cima para renomear, mudar a cor ou excluir.</div>
       ${
         abas.length
           ? `<div class="abas-lista">${abas
               .map(
-                (a) => `<div class="aba-linha" draggable="true" data-id="${esc(a.id)}">
-              <span class="alca" title="Arraste para mudar a ordem">⋮⋮</span>
+                (a) => `<div class="aba-linha" data-id="${esc(a.id)}" title="Clique para editar · segure e arraste para mudar a ordem">
               <span class="bolinha" style="background:${esc(a.cor || '#25d366')}"></span>
               <div class="cresce"><div class="aba-nome">${esc(a.nome)}</div><div class="dica">${esc(descricaoAba(a))}</div></div>
               <button class="icone-btn" data-acao="renomear" title="Renomear">${IC.lapis}</button>
@@ -1532,34 +1733,20 @@
       if (acao === 'renomear') return renomearAba(a).then(() => desenharLateral());
       irPara('editar:' + a.id);
     };
-    // Arrastar para reordenar
-    let arrastada = null;
-    corpo.ondragstart = (e) => {
-      const l = e.target.closest('.aba-linha');
-      if (!l) return;
-      arrastada = l;
-      l.classList.add('arrastando');
-      e.dataTransfer.effectAllowed = 'move';
-    };
-    corpo.ondragover = (e) => {
-      const l = e.target.closest('.aba-linha');
-      if (!l || !arrastada) return;
-      e.preventDefault();
-      if (l === arrastada) return;
-      const r = l.getBoundingClientRect();
-      l.parentElement.insertBefore(arrastada, e.clientY < r.top + r.height / 2 ? l : l.nextSibling);
-    };
-    corpo.ondragend = async () => {
-      if (!arrastada) return;
-      arrastada.classList.remove('arrastando');
-      arrastada = null;
-      const ordem = [...corpo.querySelectorAll('.aba-linha')].map((x) => x.dataset.id);
-      const lista = await VF.ler('abas', []);
-      abas = ordem.map((id) => lista.find((a) => a.id === id)).filter(Boolean).concat(lista.filter((a) => !ordem.includes(a.id)));
-      await VF.gravar('abas', abas);
-      desenharPilulas();
-    };
+    // Segurar e arrastar a linha muda a ordem
+    const listaAbas = corpo.querySelector('.abas-lista');
+    if (listaAbas)
+      ordenarArrastando(listaAbas, '.aba-linha', {
+        aoSoltar: () => salvarOrdemAbas([...listaAbas.querySelectorAll('.aba-linha')].map((x) => x.dataset.id)),
+      });
   };
+
+  async function salvarOrdemAbas(ordem) {
+    const lista = await VF.ler('abas', []);
+    abas = ordem.map((id) => lista.find((a) => a.id === id)).filter(Boolean).concat(lista.filter((a) => !ordem.includes(a.id)));
+    desenharPilulas();
+    await VF.gravar('abas', abas);
+  }
 
   function telaEditarAba(corpo, id) {
     const orig = id ? abas.find((x) => x.id === id) : null;
@@ -1880,6 +2067,15 @@
   $('#pilulas').addEventListener('click', (e) => {
     const b = e.target.closest('[data-aba]');
     if (b) selecionarAba(b.dataset.aba);
+  });
+  // Segurar e arrastar uma aba do topo para os lados muda a ordem ("Todas" fica sempre primeiro)
+  ordenarArrastando($('#pilulas'), '[data-aba]', {
+    eixo: 'x',
+    pode: (b) => b.dataset.aba !== 'todas',
+    aoSoltar: async () => {
+      await salvarOrdemAbas([...$('#pilulas').querySelectorAll('[data-aba]')].map((x) => x.dataset.aba).filter((id) => id !== 'todas'));
+      if (secaoAtual === 'abas') desenharLateral();
+    },
   });
   $('#pilulas').addEventListener('wheel', (e) => {
     if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) {

@@ -201,7 +201,6 @@ details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; color: va
 .aba-linha .dica { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .aba-linha .icone-btn { width: 32px; height: 32px; }
 .aba-linha .icone-btn svg { width: 17px; height: 17px; }
-.alca { color: var(--suave); cursor: grab; letter-spacing: -3px; font-weight: 700; padding: 0 4px 0 2px; user-select: none; }
 .bolinha { width: 14px; height: 14px; border-radius: 50%; flex: none; }
 .cores { display: flex; flex-wrap: wrap; gap: 7px; }
 .cor-op { width: 24px; height: 24px; border-radius: 50%; border: 2px solid transparent; padding: 0; position: relative; outline: none; }
@@ -277,3 +276,19 @@ details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; color: va
 .linha-sel > span { font-size: 13px; font-weight: 600; }
 .tags .mais-peq { margin-left: 2px; }
 .bk-lista .check { padding: 3px 0; font-size: 13px; }
+
+/* Segurar e arrastar para reordenar (respostas, abas e pílulas do topo) */
+.ordenando, .ordenando * { cursor: grabbing !important; user-select: none; }
+.arrastando { opacity: .45; outline: 2px dashed var(--verde); outline-offset: -2px; border-radius: 8px; }
+.pilula.arrastando { opacity: .6; }
+#listaResp.pode-ordenar .resp-arrastavel:not(.editando) > .item:active { cursor: grabbing; }
+
+/* Editar antes de enviar */
+.icone-btn.ativo { background: var(--verde-claro); color: var(--verde-txt); }
+.editar-envio { padding: 10px 12px 12px; border-top: 1px dashed var(--borda); background: var(--fundo3); display: grid; gap: 8px; }
+.editar-envio .ee-topo { font-size: 12px; color: var(--suave); }
+.editar-envio textarea { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; line-height: 1.4; padding: 7px 9px; border: 1px solid var(--borda); border-radius: 8px; background: var(--verde-claro); color: inherit; resize: vertical; field-sizing: content; min-height: 38px; max-height: 260px; }
+.editar-envio textarea:focus { outline: 2px solid var(--verde); outline-offset: -1px; }
+.editar-envio .ee-arq { font-size: 13px; color: var(--suave); }
+.editar-envio .ee-botoes { display: flex; justify-content: flex-end; gap: 8px; }
+.editar-envio .ee-botoes svg { width: 15px; height: 15px; vertical-align: -3px; }
