@@ -2086,7 +2086,7 @@
 
   // ---- Menus do WhatsApp (opções da mensagem...) que passam por baixo do painel: empurra para a esquerda ----
   function empurrarMenus() {
-    if ($('#lateral').classList.contains('oculto')) return;
+    const painelAberto = !$('#lateral').classList.contains('oculto');
     const limite = window.innerWidth - 380 - 8;
     const feitos = new Set();
     document.querySelectorAll('[role="menuitem"],[data-animate-dropdown-item],[role="menu"]').forEach((item) => {
@@ -2099,11 +2099,22 @@
       if (!el || el === document.body || feitos.has(el)) return;
       feitos.add(el);
       const r = el.getBoundingClientRect();
-      if (r.right <= limite || r.width === 0) return;
+      if (r.width === 0) return;
+      // O WA reaproveita a mesma caixa para vários menus: sempre recalcula a partir da posição natural
+      // (sem o nosso deslocamento), senão o deslocamento antigo se acumula e o menu vai parar do outro lado.
       const atual = parseFloat(el.dataset.vfDx || '0');
-      const dx = Math.min(atual, Math.max(atual - (r.right - limite), atual - (r.left - 68)));
-      el.style.translate = dx + 'px 0px';
-      el.dataset.vfDx = String(dx);
+      const esq = r.left - atual;
+      const dir = r.right - atual;
+      let dx = 0;
+      if (painelAberto && dir > limite) dx = Math.min(0, Math.max(limite - dir, 68 - esq));
+      if (dx === atual) return;
+      if (dx === 0) {
+        el.style.translate = '';
+        delete el.dataset.vfDx;
+      } else {
+        el.style.translate = dx + 'px 0px';
+        el.dataset.vfDx = String(dx);
+      }
     });
   }
   const agendarMenus = () => [0, 40, 120, 250, 500, 900].forEach((ms) => setTimeout(empurrarMenus, ms));
