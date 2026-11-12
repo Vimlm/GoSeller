@@ -250,6 +250,8 @@
   raizFlut.innerHTML = `
     <div class="kanban oculto" id="kanban"></div>
     <div class="pop oculto" id="pop"></div>
+    <div class="fundo-dialogo oculto" id="fundoDialogo"></div>
+    <div class="dialogo oculto" id="dialogo" role="dialog" aria-modal="true"></div>
     <div class="sugestoes oculto" id="sugestoes"></div>
     <div class="avisos" id="avisos"></div>
     <div class="dica-flut oculto" id="dicaFlut"></div>`;
@@ -290,12 +292,125 @@
   conferirTema();
   setInterval(conferirTema, 3000);
 
-  function avisar(texto, tipo = 'info', ms = 5000) {
+  // Aviso rápido no rodapé. Com "acao" vira um aviso com botão (ex.: Desfazer).
+  function avisar(texto, tipo = 'info', ms = 5000, acao = null) {
     const el = document.createElement('div');
     el.className = 'aviso ' + tipo;
     el.textContent = texto;
+    if (acao) {
+      const b = document.createElement('button');
+      b.className = 'aviso-acao';
+      b.textContent = acao.texto;
+      b.onclick = () => {
+        el.remove();
+        acao.fn();
+      };
+      el.appendChild(b);
+    }
     $('#avisos').appendChild(el);
     setTimeout(() => el.remove(), ms);
+  }
+  VF.aviso = avisar; // usado pelo editor de mensagens (etapas.js)
+
+  // ---- Caixinha de confirmação perto do botão clicado (no lugar do confirm/prompt do navegador) ----
+  let ultimoToque = { em: 0, rect: null, x: 0, y: 0 };
+  const guardarToque = (e) => {
+    const alvo = e.composedPath()[0];
+    const el = alvo && alvo.closest ? alvo.closest('button, a, label, .pilula, .kcard, [data-acao], [data-i]') || alvo : null;
+    ultimoToque = { em: Date.now(), rect: el && el.getBoundingClientRect ? el.getBoundingClientRect() : null, x: e.clientX, y: e.clientY };
+  };
+  document.addEventListener('pointerdown', guardarToque, true);
+  raiz.addEventListener('pointerdown', guardarToque, true);
+  raizFlut.addEventListener('pointerdown', guardarToque, true);
+
+  let fecharDialogoAtual = null;
+  // opcoes: [{ valor, texto, tipo: 'principal' | 'perigo' | 'sec', foco }]; campo: { valor, placeholder } -> devolve o texto
+  function dialogo({ titulo, texto = '', opcoes, campo = null, largura = 300 }) {
+    if (fecharDialogoAtual) fecharDialogoAtual(null);
+    return new Promise((resolver) => {
+      const caixa = $('#dialogo');
+      caixa.style.width = largura + 'px';
+      caixa.innerHTML = `
+        <div class="dlg-titulo">${esc(titulo)}</div>
+        ${texto ? texto.split(/\n\n+/).map((p) => `<p class="dlg-texto">${esc(p).replace(/\n/g, '<br>')}</p>`).join('') : ''}
+        ${campo ? `<input type="text" class="dlg-campo" maxlength="60" value="${esc(campo.valor || '')}" placeholder="${esc(campo.placeholder || '')}">` : ''}
+        <div class="dlg-botoes">${opcoes.map((o, i) => `<button type="button" class="btn peq ${o.tipo === 'perigo' ? 'perigo-cheio' : o.tipo === 'sec' ? 'sec' : ''}" data-op="${i}">${esc(o.texto)}</button>`).join('')}</div>`;
+      $('#fundoDialogo').classList.remove('oculto');
+      caixa.classList.remove('oculto', 'aparecer');
+      // Posição: logo abaixo (ou acima) do botão clicado; sem clique recente, no meio da tela
+      const W = innerWidth, H = innerHeight, m = 10;
+      const r = Date.now() - ultimoToque.em < 1500 && ultimoToque.rect && ultimoToque.rect.width ? ultimoToque.rect : null;
+      const alt = caixa.offsetHeight, larg = caixa.offsetWidth;
+      let x, y;
+      if (r) {
+        x = Math.min(Math.max(m, r.left + r.width / 2 - larg / 2), W - larg - m);
+        y = r.bottom + 8 + alt < H - m ? r.bottom + 8 : Math.max(m, r.top - 8 - alt);
+        caixa.dataset.lado = y > r.top ? 'baixo' : 'cima';
+        caixa.style.setProperty('--seta', Math.min(Math.max(14, r.left + r.width / 2 - x), larg - 14) + 'px');
+      } else {
+        x = (W - larg) / 2;
+        y = Math.max(m, (H - alt) / 2.4);
+        caixa.dataset.lado = 'meio';
+      }
+      caixa.style.left = x + 'px';
+      caixa.style.top = y + 'px';
+      void caixa.offsetWidth;
+      caixa.classList.add('aparecer');
+      const input = caixa.querySelector('.dlg-campo');
+      const valorDe = (o) => (campo ? (o.valor ? input.value.trim() : null) : o.valor);
+      const fechar = (res) => {
+        caixa.classList.add('oculto');
+        $('#fundoDialogo').classList.add('oculto');
+        document.removeEventListener('keydown', teclas, true);
+        fecharDialogoAtual = null;
+        resolver(res);
+      };
+      fecharDialogoAtual = fechar;
+      const teclas = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          fechar(campo ? null : opcoes.find((o) => o.cancela)?.valor ?? false);
+        }
+        if (e.key === 'Enter' && input && e.composedPath().includes(input)) {
+          e.preventDefault();
+          e.stopPropagation();
+          const o = opcoes.find((x) => x.tipo === 'principal') || opcoes[opcoes.length - 1];
+          fechar(valorDe(o));
+        }
+      };
+      document.addEventListener('keydown', teclas, true);
+      caixa.onclick = (e) => {
+        const b = e.target.closest('[data-op]');
+        if (b) fechar(valorDe(opcoes[Number(b.dataset.op)]));
+      };
+      $('#fundoDialogo').onclick = () => fechar(campo ? null : opcoes.find((o) => o.cancela)?.valor ?? false);
+      setTimeout(() => {
+        if (input) {
+          input.focus();
+          input.select();
+        } else caixa.querySelector(`[data-op="${Math.max(0, opcoes.findIndex((o) => o.foco))}"]`).focus();
+      }, 30);
+    });
+  }
+
+  // Sim/não. O primeiro parágrafo vira o título. perigo = botão vermelho e foco no "Voltar".
+  function confirmar(mensagem, { ok = 'Confirmar', cancelar = 'Voltar', perigo = false } = {}) {
+    const [titulo, ...resto] = String(mensagem).split(/\n\n+/);
+    return dialogo({
+      titulo,
+      texto: resto.join('\n\n'),
+      opcoes: [
+        { valor: false, texto: cancelar, tipo: 'sec', foco: perigo, cancela: true },
+        { valor: true, texto: ok, tipo: perigo ? 'perigo' : 'principal', foco: !perigo },
+      ],
+    });
+  }
+
+  // Pede um texto (nome de aba, categoria...). Devolve null se cancelar.
+  async function pedirTexto(titulo, valor = '', { ok = 'Salvar', placeholder = '', texto = '' } = {}) {
+    const r = await dialogo({ titulo, texto, campo: { valor, placeholder }, opcoes: [{ valor: false, texto: 'Cancelar', tipo: 'sec' }, { valor: true, texto: ok, tipo: 'principal' }] });
+    return r === null ? null : r.trim();
   }
 
   // ---- Menu "..." (popover) ----
@@ -787,7 +902,7 @@
     irPara('editar:nova');
   }
   async function novaCategoria() {
-    const nome = (prompt('Nome da nova categoria:\n(ex.: Técnico em Enfermagem, Pós-graduação, Objeções)') || '').trim();
+    const nome = (await pedirTexto('Nova categoria', '', { ok: 'Criar', placeholder: 'Ex.: Técnico em Enfermagem, Objeções' })) || '';
     if (!nome) return;
     if (nomesCategorias().some((c) => c.toLowerCase() === nome.toLowerCase())) return avisar(`A categoria "${nome}" já existe.`, 'erro');
     estadoUI.fechadas.delete(nome);
@@ -795,10 +910,10 @@
     avisar(`Categoria "${nome}" criada. Use o ⋯ dela para adicionar respostas.`, 'ok');
   }
   async function renomearCategoria(antigo) {
-    const nome = (prompt('Novo nome da categoria:', antigo) || '').trim();
+    const nome = (await pedirTexto('Renomear categoria', antigo)) || '';
     if (!nome || nome === antigo) return;
     if (nomesCategorias().some((c) => c !== antigo && c.toLowerCase() === nome.toLowerCase()))
-      if (!confirm(`Já existe "${nome}". Juntar as duas categorias?`)) return;
+      if (!(await confirmar(`Já existe "${nome}"\n\nJuntar as duas categorias em uma só?`, { ok: 'Juntar' }))) return;
     const cats = await VF.ler('categorias', []);
     await VF.gravar('categorias', [...new Set(cats.map((c) => (c === antigo ? nome : c)))]);
     const lista = await VF.ler('respostas', []);
@@ -808,7 +923,7 @@
   }
   async function excluirCategoria(nome) {
     const qtd = respostas.filter((r) => r.pasta === nome).length;
-    if (!confirm(`Excluir a categoria "${nome}"?${qtd ? `\n\nAs ${qtd} respostas dela NÃO são apagadas: vão para "Sem categoria".` : ''}`)) return;
+    if (!(await confirmar(`Excluir a categoria "${nome}"?${qtd ? `\n\nAs ${qtd} respostas dela NÃO são apagadas: vão para "Sem categoria".` : ''}`, { ok: 'Excluir', perigo: true }))) return;
     await VF.gravar('categorias', (await VF.ler('categorias', [])).filter((c) => c !== nome));
     if (qtd) {
       const lista = await VF.ler('respostas', []);
@@ -888,7 +1003,7 @@
       return avisar(e.message, 'erro');
     }
     if (!chat) return avisar('Abra uma conversa primeiro.');
-    if (chat.id !== ed.chatId && !confirm(`Você trocou de conversa.\n\nEste texto foi preparado para ${ed.contato || 'outro contato'}. Enviar para ${nomeDe(chat.id, chat.nome) || 'a conversa aberta'} mesmo assim?`))
+    if (chat.id !== ed.chatId && !(await confirmar(`Você trocou de conversa\n\nEste texto foi preparado para ${ed.contato || 'outro contato'}. Enviar para ${nomeDe(chat.id, chat.nome) || 'a conversa aberta'} mesmo assim?`, { ok: 'Enviar mesmo assim' })))
       return;
     const etapas = ed.etapas.filter((e) => e.tipo !== 'texto' || e.texto.trim());
     if (!etapas.length) return avisar('Não sobrou nenhuma mensagem para enviar.', 'erro');
@@ -917,7 +1032,7 @@
   async function excluirResposta(r) {
     const usadaEm = scripts.filter((s) => s.itens.some((it) => it.respostaId === r.id));
     const extra = usadaEm.length ? `\n\nEla também sai ${usadaEm.length > 1 ? 'dos scripts' : 'do script'}: ${usadaEm.map((s) => s.nome).join(', ')}.` : '';
-    if (!confirm(`Excluir a resposta "${r.nome}"?${extra}`)) return;
+    if (!(await confirmar(`Excluir a resposta "${r.nome}"?${extra}`, { ok: 'Excluir', perigo: true }))) return;
     await VF.gravar('respostas', (await VF.ler('respostas', [])).filter((x) => x.id !== r.id));
     if (usadaEm.length) {
       const lista = await VF.ler('scripts', []);
@@ -1038,7 +1153,7 @@
             texto: '🗑️ Excluir',
             perigo: true,
             acao: async () => {
-              if (!confirm(`Excluir o script "${s.nome}"? As respostas rápidas continuam salvas.`)) return;
+              if (!(await confirmar(`Excluir o script "${s.nome}"?\n\nAs respostas rápidas usadas nele continuam salvas.`, { ok: 'Excluir', perigo: true }))) return;
               await VF.gravar('scripts', (await VF.ler('scripts', [])).filter((x) => x.id !== s.id));
             },
           },
@@ -1227,11 +1342,11 @@
     }
     (iniciais && iniciais.length ? iniciais : [[{ tipo: 'texto', texto: '', espera: 2 }]]).slice(0, MAX).forEach(novo);
     desenhar();
-    barra.addEventListener('click', (e) => {
+    barra.addEventListener('click', async (e) => {
       const tirar = e.target.closest('[data-tirar-modelo]');
       if (tirar) {
         const k = Number(tirar.dataset.tirarModelo);
-        if (!confirm(`Remover o Modelo ${k + 1}?`)) return;
+        if (!(await confirmar(`Remover o Modelo ${k + 1}?\n\nO texto e os arquivos dele saem desta mensagem.`, { ok: 'Remover', perigo: true }))) return;
         editores[k].caixa.remove();
         editores.splice(k, 1);
         ativo = Math.min(ativo >= k && ativo > 0 ? ativo - 1 : ativo, editores.length - 1);
@@ -1324,7 +1439,7 @@
     const msg = ativa
       ? `Excluir a campanha "${c.nome}"?\n\nEla ainda não terminou: o envio para quem está na fila PARA, e o histórico é apagado.`
       : `Excluir a campanha "${c.nome}" e o histórico dela?`;
-    if (!confirm(msg)) return false;
+    if (!(await confirmar(msg, { ok: 'Excluir campanha', perigo: true }))) return false;
     await VF.gravar('campanhas', (await VF.ler('campanhas', [])).filter((x) => x !== c.id));
     await VF.apagar('campanha:' + c.id);
     VF.limparMidiasOrfas();
@@ -1442,7 +1557,7 @@
       if (!acao) return;
       if (acao === 'pausar') await mudarStatus(id, 'pausada');
       if (acao === 'retomar') await mudarStatus(id, 'ativa');
-      if (acao === 'cancelar' && confirm('Cancelar a campanha? Quem ainda não recebeu não vai receber.')) await mudarStatus(id, 'cancelada');
+      if (acao === 'cancelar' && (await confirmar('Cancelar a campanha?\n\nQuem ainda não recebeu não vai receber.', { ok: 'Cancelar envio', cancelar: 'Continuar enviando', perigo: true }))) await mudarStatus(id, 'cancelada');
       if (acao === 'refazer') {
         const atual = await VF.ler('campanha:' + id);
         atual.contatos.forEach((x) => ['falhou', 'pulado'].includes(x.status) && x.erro !== 'Número sem WhatsApp' && !/não receber/.test(x.erro || '') && Object.assign(x, { status: 'pendente', erro: '', ignorarRecente: true }));
@@ -1760,7 +1875,7 @@
       };
       const temAcao = acoes.addAba || acoes.removerAba || acoes.addEtiquetas.length || acoes.removerEtiquetas.length;
       if (!etapas.length && !temAcao) return avisar('Coloque o que enviar (passo 2).', 'erro');
-      if (!confirm(`Começar a enviar para ${publico.contatos.length} lead(s)?${variacoes.length > 1 ? `\n\n🔀 ${variacoes.length} modelos: cada lead recebe um sorteado.` : ''}\n\nO envio é lento de propósito (${cfg.intervaloMin}–${cfg.intervaloMax}s entre cada um) e segue em segundo plano.`)) return;
+      if (!(await confirmar(`Começar a enviar para ${publico.contatos.length} lead(s)?${variacoes.length > 1 ? `\n\n🔀 ${variacoes.length} modelos: cada lead recebe um sorteado.` : ''}\n\nO envio é lento de propósito (${cfg.intervaloMin}–${cfg.intervaloMax}s entre cada um) e segue em segundo plano.`, { ok: 'Começar envio' }))) return;
       const origem = q('#origem').value;
       const c = {
         id: VF.novoId(),
@@ -1814,7 +1929,7 @@
   }
 
   async function excluirAba(a) {
-    if (!confirm(`Excluir a aba "${a.nome}"?\n\nOs leads e as conversas continuam no WhatsApp, só a aba some.${automacoes[a.id] ? '\n\nA sequência automática desta aba também para.' : ''}`)) return false;
+    if (!(await confirmar(`Excluir a aba "${a.nome}"?\n\nOs leads e as conversas continuam no WhatsApp, só a aba some.${automacoes[a.id] ? '\n\nA sequência automática desta aba também para.' : ''}`, { ok: 'Excluir aba', perigo: true }))) return false;
     if (automacoes[a.id]) await apagarAutomacao(a.id).catch((e) => avisar('Sequência automática: ' + e.message, 'erro'));
     abas = (await VF.ler('abas', [])).filter((x) => x.id !== a.id);
     await VF.gravar('abas', abas);
@@ -1825,7 +1940,7 @@
   }
 
   async function renomearAba(a) {
-    const nome = (prompt('Novo nome da aba:', a.nome) || '').trim();
+    const nome = (await pedirTexto('Renomear aba', a.nome)) || '';
     if (nome && nome !== a.nome) await salvarAba({ ...a, nome });
   }
 
@@ -2146,7 +2261,17 @@
     automacoes = { ...(await VF.ler('automacoes', {})), [aba.id]: v };
     await VF.gravar('automacoes', automacoes);
     const n = (aba.chats || []).length;
-    if (novaAgora && v.ativa && n && confirm(`Começar a sequência também para os ${n} lead(s) que JÁ estão em "${aba.nome}"?\n\nOK = sim, todos recebem.\nCancelar = só quem entrar daqui pra frente.`)) {
+    const todos =
+      novaAgora && v.ativa && n &&
+      (await dialogo({
+        titulo: `E quem já está em "${aba.nome}"?`,
+        texto: `Já tem ${n} lead(s) nesta aba. A sequência pode valer para eles também ou só para quem entrar daqui pra frente.`,
+        opcoes: [
+          { valor: false, texto: 'Só os novos', tipo: 'sec', cancela: true },
+          { valor: true, texto: `Incluir os ${n}`, tipo: 'principal', foco: true },
+        ],
+      }));
+    if (todos) {
       const entrar = await montarEntradas(aba.id, aba.chats);
       await api('POST', '/leads/mudancas', { entrar: entrar.map((x) => ({ ...x, em: Date.now() })) });
       avisar(`${entrar.length} lead(s) entraram na sequência.`, 'ok');
@@ -2311,8 +2436,25 @@
       }
       itens.push({ texto: '↺ Recomeçar a sequência do início', acao: acaoServ('recomecar', 'A sequência recomeçou do início.') });
     }
-    itens.push({ texto: 'Tirar desta coluna', perigo: true, acao: () => alterarAba(abaId, chat.ids, nome, false) });
+    itens.push({
+      texto: 'Tirar desta coluna',
+      perigo: true,
+      acao: async () => {
+        await alterarAba(abaId, chat.ids, nome, false);
+        avisar(`${nome || 'Lead'} saiu de "${aba.nome}".`, 'info', 7000, { texto: 'Desfazer', fn: () => devolverNaAba(abaId, chat) });
+      },
+    });
     abrirPop(botao, itens);
+  }
+
+  // Desfazer "tirar da coluna": devolve com a data original (a sequência continua de onde parou)
+  async function devolverNaAba(abaId, chat) {
+    const lista = await VF.ler('abas', []);
+    const aba = lista.find((a) => a.id === abaId);
+    if (!aba) return;
+    aba.chats = (aba.chats || []).filter((x) => !x.ids.some((y) => chat.ids.includes(y)));
+    aba.chats.push({ ...chat, em: chat.em || 0 });
+    await VF.gravar('abas', lista);
   }
 
   async function abrirChatDoKanban(chat) {
@@ -2438,9 +2580,9 @@
       const modelos = EditorModelos(caixa.querySelector('.passo-modelos'), p.variacoes);
       const item = { caixa, modelos };
       passos.push(item);
-      caixa.querySelector('[data-tirar-passo]').onclick = () => {
+      caixa.querySelector('[data-tirar-passo]').onclick = async () => {
         if (passos.length === 1) return avisar('A sequência precisa de pelo menos uma mensagem. Para não usar, desmarque "Ligada" ou apague a sequência.', 'erro');
-        if (!confirm('Remover esta mensagem da sequência?')) return;
+        if (!(await confirmar(`Remover a ${caixa.querySelector('.passo-n').textContent}?\n\nAs outras mensagens da sequência continuam.`, { ok: 'Remover', perigo: true }))) return;
         caixa.remove();
         passos.splice(passos.indexOf(item), 1);
         renumerar();
@@ -2468,8 +2610,8 @@
       passos[passos.length - 1].caixa.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     };
     el.querySelector('#autoLigada').onchange = (e) => (ligada = e.target.checked);
-    el.querySelector('#autoApagar')?.addEventListener('click', () => {
-      if (!confirm('Apagar a sequência automática desta aba?\nQuem está no meio para de receber. (Vale quando clicar em Salvar.)')) return;
+    el.querySelector('#autoApagar')?.addEventListener('click', async () => {
+      if (!(await confirmar('Apagar a sequência automática desta aba?\n\nQuem está no meio para de receber. Vale quando você clicar em Salvar.', { ok: 'Apagar sequência', perigo: true }))) return;
       apagar = true;
       el.querySelector('#autoForm').classList.add('oculto');
       el.querySelector('#autoCartao').insertAdjacentHTML('beforeend', '<div class="alerta" style="margin-top:8px">A sequência será apagada ao salvar.</div>');
@@ -2545,7 +2687,7 @@
         <button class="btn sec peq" id="tentar">Tentar de novo</button> <button class="link" id="trocarChave">Trocar a chave de acesso</button>`;
       corpo.onclick = async (ev) => {
         if (ev.target.closest('#tentar')) desenharLateral();
-        if (ev.target.closest('#trocarChave') && confirm('Desligar este computador do servidor? (As sequências continuam rodando no servidor.)')) {
+        if (ev.target.closest('#trocarChave') && (await confirmar('Desligar este computador do servidor?\n\nAs sequências continuam rodando no servidor.', { ok: 'Desligar', perigo: true }))) {
           await VF.gravar('servidor', { chave: '' });
           servidor = { chave: '' };
           desenharLateral();
@@ -2629,7 +2771,7 @@
           e.target.closest('#mostrarQR').disabled = false;
         }
       }
-      if (e.target.closest('#desconectarZap') && confirm('Desconectar o WhatsApp do servidor?\n\nAs sequências automáticas param de sair até você conectar de novo.')) {
+      if (e.target.closest('#desconectarZap') && (await confirmar('Desconectar o WhatsApp do servidor?\n\nAs sequências automáticas param de sair até você conectar de novo.', { ok: 'Desconectar', perigo: true }))) {
         await api('POST', '/whatsapp/desconectar').catch((err) => avisar(err.message, 'erro'));
         desenharLateral();
       }
@@ -2650,7 +2792,7 @@
           avisar(err.message, 'erro');
         }
       }
-      if (e.target.closest('#trocarChave') && confirm('Desligar este computador do servidor?\n\nAs sequências continuam rodando no servidor. Para voltar, cole a chave de novo.')) {
+      if (e.target.closest('#trocarChave') && (await confirmar('Desligar este computador do servidor?\n\nAs sequências continuam rodando no servidor. Para voltar, cole a chave de novo.', { ok: 'Desligar', perigo: true }))) {
         await VF.gravar('servidor', { chave: '' });
         servidor = { chave: '' };
         desenharLateral();
@@ -2684,7 +2826,7 @@
         if (!id) return avisar('Número inválido.', 'erro');
         lista.push({ ids: [id, id.replace(/^55(\d\d)9(\d{8})@/, '55$1$2@')], nome: '', texto: '', em: Date.now() });
       } else if (e.target.closest('[data-i]')) {
-        if (!confirm('Remover da lista? Ele volta a poder receber envios em massa.')) return;
+        if (!(await confirmar('Tirar do Não perturbe?\n\nEste contato volta a poder receber envios em massa e sequências.', { ok: 'Tirar da lista', perigo: true }))) return;
         lista.splice(Number(e.target.closest('[data-i]').dataset.i), 1);
       } else return;
       await VF.gravar('naoPerturbe', lista);

@@ -434,9 +434,13 @@ def entrar(conta_id, aba_id, numero, ids, nome, em):
             return 'ja_estava'
         if atual['estado'] == 'descadastrou':
             return 'descadastrou'
-        # Voltou para a aba depois da última mudança: recomeça a sequência
         if (em or 0) <= (atual['atualizado'] or 0):
+            # "Desfazer" logo depois de tirar da aba: continua de onde parou
+            if atual['estado'] == 'saiu' and agora - (atual['atualizado'] or 0) < 5 * 60000 and atual['passo'] < len(passos):
+                ex('UPDATE inscricoes SET estado=?, atualizado=? WHERE id=?', (estado, agora, atual['id']))
+                return 'retomou'
             return 'antigo'
+        # Voltou para a aba depois da última mudança: recomeça a sequência
         ex('''UPDATE inscricoes SET estado=?, passo=0, proximo_em=?, entrou_em=?, atualizado=?, erro='', tentativas=0,
               respondeu_em=0, mover_para='', mover_ok=1 WHERE id=?''', (estado, agora + espera_ms(passos[0]), agora, agora, atual['id']))
         return 'recomecou'

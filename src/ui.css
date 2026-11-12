@@ -362,3 +362,31 @@ details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; color: va
 .qr-area { margin-top: 10px; text-align: center; }
 .qr-area img { width: 240px; height: 240px; background: #fff; padding: 8px; border-radius: 8px; }
 .codigo-par { font-size: 28px; font-weight: 700; letter-spacing: .15em; margin: 8px 0; }
+
+/* ---------- Caixinha de confirmação (no lugar do confirm/prompt do navegador) ---------- */
+.fundo-dialogo { position: fixed; inset: 0; pointer-events: auto; background: transparent; }
+.dialogo {
+  position: fixed; pointer-events: auto; background: var(--fundo); color: var(--texto); border: 1px solid var(--borda);
+  border-radius: 12px; box-shadow: 0 12px 32px rgba(11,20,26,.22), 0 2px 6px rgba(11,20,26,.08); padding: 14px 14px 12px;
+  font-size: 13px; max-width: calc(100vw - 20px); opacity: 0; transform: scale(.96); transition: opacity .12s ease, transform .12s ease;
+}
+.dialogo[data-lado="baixo"] { transform-origin: top center; }
+.dialogo[data-lado="cima"] { transform-origin: bottom center; }
+.dialogo.aparecer { opacity: 1; transform: none; }
+:host(.escuro) .dialogo { box-shadow: 0 12px 32px rgba(0,0,0,.55); background: #1d282f; }
+.dlg-titulo { font-weight: 700; font-size: 14px; line-height: 1.35; margin-bottom: 4px; }
+.dlg-texto { margin: 4px 0 0; color: var(--suave); line-height: 1.45; }
+.dlg-campo { width: 100%; margin-top: 8px; padding: 8px 10px; border: 1.5px solid var(--verde); border-radius: 8px; background: var(--fundo); outline: none; }
+.dlg-botoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.dlg-botoes .btn { padding: 7px 12px; font-size: 13px; }
+.dlg-botoes .btn:focus-visible { outline: 2px solid var(--verde); outline-offset: 2px; }
+.btn.perigo-cheio { background: var(--vermelho); color: #fff; }
+.btn.perigo-cheio:hover { background: #b3261e; }
+.aviso { display: flex; align-items: center; gap: 14px; }
+.aviso-acao { border: 0; background: transparent; color: #7ee2b8; font-weight: 700; padding: 0; text-transform: uppercase; font-size: 12.5px; letter-spacing: .03em; margin-left: auto; }
+.dialogo[data-lado="baixo"]::before, .dialogo[data-lado="cima"]::before {
+  content: ""; position: absolute; left: var(--seta, 50%); width: 10px; height: 10px; margin-left: -6px;
+  background: inherit; border: 1px solid var(--borda); transform: rotate(45deg);
+}
+.dialogo[data-lado="baixo"]::before { top: -6px; border-right: 0; border-bottom: 0; }
+.dialogo[data-lado="cima"]::before { bottom: -6px; border-left: 0; border-top: 0; }

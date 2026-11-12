@@ -141,7 +141,7 @@ function EditorEtapas(container, etapasIniciais, aoMudar, opcoes = {}) {
     if (!ev.target.matches('[data-arquivo]')) return;
     const arq = ev.target.files[0];
     if (!arq) return;
-    if (arq.size > LIMITE) return alert(`Arquivo grande demais (${VF.tamanhoLegivel(arq.size)}). O limite é 16 MB.`);
+    if (arq.size > LIMITE) return (VF.aviso || alert)(`Arquivo grande demais (${VF.tamanhoLegivel(arq.size)}). O limite é 16 MB.`, 'erro', 7000);
     const i = Number(ev.target.closest('[data-i]').dataset.i);
     const dataUrl = await new Promise((ok, erro) => {
       const r = new FileReader();
