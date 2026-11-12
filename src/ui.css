@@ -292,3 +292,15 @@ details > summary { cursor: pointer; font-weight: 600; padding: 6px 0; color: va
 .editar-envio .ee-arq { font-size: 13px; color: var(--suave); }
 .editar-envio .ee-botoes { display: flex; justify-content: flex-end; gap: 8px; }
 .editar-envio .ee-botoes svg { width: 15px; height: 15px; vertical-align: -3px; }
+.contato-linha.clicavel { cursor: pointer; border-radius: 8px; padding-left: 6px; padding-right: 6px; }
+.contato-linha.clicavel:hover { background: var(--fundo2); }
+.contato-linha .abrir-chat { display: inline-flex; color: var(--suave); opacity: 0; transition: opacity .1s; }
+.contato-linha .abrir-chat svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+.contato-linha.clicavel:hover .abrir-chat { opacity: 1; color: var(--verde-txt); }
+.contato-linha.abrindo { opacity: .5; }
+.modelos { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+.modelos .modelo { border: 1px solid var(--borda); background: var(--fundo); color: var(--texto); border-radius: 999px; padding: 5px 10px; font-size: 12px; font-weight: 600; cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
+.modelos .modelo.ativo { background: var(--verde); border-color: var(--verde); color: #fff; }
+.modelos .modelo .x { opacity: .7; font-weight: 400; }
+.modelos .modelo .x:hover { opacity: 1; }
+.modelos .add-modelo { border: 1px dashed var(--borda); background: transparent; color: var(--suave); border-radius: 999px; padding: 5px 10px; font-size: 12px; cursor: pointer; }

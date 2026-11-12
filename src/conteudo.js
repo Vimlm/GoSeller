@@ -194,6 +194,7 @@
     lupa: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
     lapis: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
     lixo: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+    chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-5A8 8 0 1 1 21 12z"/></svg>',
   };
 
   // =====================================================================
@@ -1235,6 +1236,19 @@
     if (status === 'ativa') setTimeout(passoDoMotor, 300);
   }
 
+  async function excluirCampanha(c) {
+    const ativa = ['ativa', 'pausada'].includes(c.status);
+    const msg = ativa
+      ? `Excluir a campanha "${c.nome}"?\n\nEla ainda não terminou: o envio para quem está na fila PARA, e o histórico é apagado.`
+      : `Excluir a campanha "${c.nome}" e o histórico dela?`;
+    if (!confirm(msg)) return false;
+    await VF.gravar('campanhas', (await VF.ler('campanhas', [])).filter((x) => x !== c.id));
+    await VF.apagar('campanha:' + c.id);
+    VF.limparMidiasOrfas();
+    avisar('Campanha excluída.', 'ok');
+    return true;
+  }
+
   telas.envio = async (corpo) => {
     if (visao === 'nova' || (visao && visao.startsWith('duplicar:'))) return telaNovaCampanha(corpo, visao.startsWith('duplicar:') ? visao.slice(9) : null);
     if (visao && visao.startsWith('campanha:')) return telaCampanha(corpo, visao.slice(9));
@@ -1251,7 +1265,7 @@
                 const n = contar(c);
                 const pct = n.total ? Math.round((n.feitos / n.total) * 100) : 0;
                 return `<div class="cartao" data-camp="${esc(c.id)}" style="cursor:pointer">
-                  <div style="display:flex;gap:8px;align-items:center"><b style="flex:1">${esc(c.nome)}</b><span class="etq ${c.status}">${NOME_STATUS[c.status]}</span></div>
+                  <div style="display:flex;gap:8px;align-items:center"><b style="flex:1">${esc(c.nome)}</b><span class="etq ${c.status}">${NOME_STATUS[c.status]}</span><button class="icone-btn" data-excluir="${esc(c.id)}" title="Excluir campanha">${IC.lixo}</button></div>
                   <div class="progresso"><div style="width:${pct}%"></div></div>
                   <div class="dica">${n.feitos}/${n.total} · ✅ ${n.enviado} · 💬 ${n.respondeu} · ⏭ ${n.pulado} · ❌ ${n.falhou}</div>
                   ${c.motivo && c.status === 'pausada' ? `<div class="dica" style="color:var(--vermelho)">${esc(c.motivo)}</div>` : ''}
@@ -1261,8 +1275,14 @@
           : `<div class="vazio">Nenhuma campanha ainda.<br>Crie uma para mandar mensagem para vários leads, devagar e em segundo plano.</div>`
       }
       <div class="dica">Ritmo: ${cfg.intervaloMin}–${cfg.intervaloMax}s entre leads, pausa a cada ${cfg.loteTamanho}${cfg.usarHorario ? `, das ${cfg.horaInicio} às ${cfg.horaFim}` : ''}. <button class="link" data-abrir="config">mudar</button></div>`;
-    corpo.onclick = (e) => {
+    corpo.onclick = async (e) => {
       if (e.target.closest('#nova')) return irPara('nova');
+      const ex = e.target.closest('[data-excluir]');
+      if (ex) {
+        const alvo = campanhas.find((x) => x.id === ex.dataset.excluir);
+        if (alvo && (await excluirCampanha(alvo))) desenharLateral();
+        return;
+      }
       const c = e.target.closest('[data-camp]');
       if (c) irPara('campanha:' + c.dataset.camp);
     };
@@ -1276,6 +1296,15 @@
     const f = estadoUI.filtroContatos;
     const visiveis = c.contatos.filter((x) => f === 'todos' || (f === 'respondeu' ? x.respondeu : x.status === f));
     const aindaNaoEnviou = c.status === 'concluida' && n.enviado === 0;
+    const nModelos = (c.variacoes || []).length || 1;
+    const porModelo = nModelos > 1
+      ? Array.from({ length: nModelos }, (_, k) => {
+          const doModelo = c.contatos.filter((x) => x.modelo === k + 1);
+          const env = doModelo.filter((x) => x.status === 'enviado').length;
+          const resp = doModelo.filter((x) => x.respondeu).length;
+          return `<div><b>Modelo ${k + 1}</b>: ${env} enviados · ${resp} responderam${env ? ` (${Math.round((resp / env) * 100)}%)` : ''}</div>`;
+        }).join('')
+      : '';
     corpo.innerHTML = `
       <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>${esc(c.nome)}</h2><span class="etq ${c.status}">${NOME_STATUS[c.status]}</span></div>
       ${c.motivo && c.status === 'pausada' ? `<div class="alerta">${esc(c.motivo)}</div>` : ''}
@@ -1286,13 +1315,15 @@
         <div><b>${n.enviado}</b><span>enviados</span></div><div><b>${n.respondeu}</b><span>responderam</span></div>
         <div><b>${n.pendente}</b><span>na fila</span></div><div><b>${n.pulado + n.falhou}</b><span>pulados/falhas</span></div>
       </div>
+      ${porModelo ? `<div class="dica" style="margin-top:8px">🔀 ${nModelos} modelos sorteados:${porModelo}</div>` : ''}
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin:10px 0">
         ${c.status === 'ativa' ? `<button class="btn sec peq" data-acao="pausar">${IC.pausa} Pausar</button>` : ''}
         ${c.status === 'pausada' ? `<button class="btn peq" data-acao="retomar">${IC.play} Retomar</button>` : ''}
         ${n.falhou + n.pulado && c.status !== 'cancelada' ? '<button class="btn sec peq" data-acao="refazer">Tentar de novo pulados/falhas</button>' : ''}
         <button class="btn sec peq" data-acao="duplicar">Duplicar</button>
         <button class="btn sec peq" data-acao="csv">Planilha</button>
-        ${['ativa', 'pausada'].includes(c.status) ? '<button class="btn perigo peq" data-acao="cancelar">Cancelar</button>' : '<button class="btn perigo peq" data-acao="excluir">Excluir</button>'}
+        ${['ativa', 'pausada'].includes(c.status) ? '<button class="btn perigo peq" data-acao="cancelar">Cancelar</button>' : ''}
+        <button class="btn perigo peq" data-acao="excluir">${IC.lixo} Excluir</button>
       </div>
       <div class="chips">${['todos', 'pendente', 'enviado', 'respondeu', 'pulado', 'falhou']
         .map((x) => `<button class="chip ${f === x ? 'ativo' : ''}" data-fc="${x}">${x === 'todos' ? 'Todos' : x === 'respondeu' ? 'Responderam' : NOME_CONTATO[x]}</button>`)
@@ -1300,17 +1331,29 @@
       <div>${visiveis
         .slice(0, 500)
         .map(
-          (x) => `<div class="contato-linha"><div class="cresce"><div>${esc(x.nome || VF.numeroDoId(x.id) || x.id.split('@')[0])}${x.respondeu ? ' 💬' : ''}</div>
-            ${x.erro ? `<small>${esc(x.erro)}</small>` : x.em ? `<small>${new Date(x.em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</small>` : ''}</div>
-            <span class="etq ${x.status}">${NOME_CONTATO[x.status] || x.status}</span></div>`
+          (x) => `<div class="contato-linha clicavel" data-abrir-chat="${esc(x.id)}" title="Abrir a conversa no WhatsApp"><div class="cresce"><div>${esc(x.nome || VF.numeroDoId(x.id) || x.id.split('@')[0])}${x.respondeu ? ' 💬' : ''}${x.modelo && nModelos > 1 ? ` <span class="dica">· modelo ${x.modelo}</span>` : ''}</div>
+            ${x.erro ? `<small>${esc(x.erro)}</small>` : x.respondeuEm ? `<small>Respondeu ${new Date(x.respondeuEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</small>` : x.em ? `<small>${new Date(x.em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</small>` : ''}</div>
+            <span class="etq ${x.status}">${NOME_CONTATO[x.status] || x.status}</span><span class="abrir-chat">${IC.chat}</span></div>`
         )
-        .join('') || '<div class="vazio">Ninguém aqui.</div>'}</div>`;
+        .join('') || '<div class="vazio">Ninguém aqui.</div>'}</div>
+      ${visiveis.length ? '<div class="dica" style="margin-top:6px">Clique em um lead para abrir a conversa dele.</div>' : ''}`;
     corpo.onclick = async (e) => {
       if (e.target.closest('#voltar')) return irPara(null);
       const fc = e.target.closest('[data-fc]');
       if (fc) {
         estadoUI.filtroContatos = fc.dataset.fc;
         return desenharLateral();
+      }
+      const lin = e.target.closest('[data-abrir-chat]');
+      if (lin) {
+        lin.classList.add('abrindo');
+        try {
+          await rpc('abrirChat', lin.dataset.abrirChat);
+        } catch (err) {
+          avisar('Não consegui abrir essa conversa: ' + err.message, 'erro');
+        }
+        lin.classList.remove('abrindo');
+        return;
       }
       const acao = e.target.closest('[data-acao]')?.dataset.acao;
       if (!acao) return;
@@ -1327,20 +1370,18 @@
       }
       if (acao === 'duplicar') return irPara('duplicar:' + id);
       if (acao === 'csv') return baixarCSV(c);
-      if (acao === 'excluir' && confirm('Excluir a campanha e o histórico dela?')) {
-        await VF.apagar('campanha:' + id);
-        await VF.gravar('campanhas', (await VF.ler('campanhas', [])).filter((x) => x !== id));
-        VF.limparMidiasOrfas();
-        return irPara(null);
+      if (acao === 'excluir') {
+        if (await excluirCampanha(c)) return irPara(null);
+        return;
       }
       desenharLateral();
     };
   }
 
   function baixarCSV(c) {
-    const linhas = [['nome', 'numero', 'situacao', 'respondeu', 'quando', 'observacao']];
+    const linhas = [['nome', 'numero', 'situacao', 'respondeu', 'modelo', 'quando', 'observacao']];
     c.contatos.forEach((x) =>
-      linhas.push([x.nome || '', (x.id.match(/^(\d+)@c\.us$/) || [])[1] || x.id, NOME_CONTATO[x.status] || x.status, x.respondeu ? 'sim' : '', x.em ? new Date(x.em).toLocaleString('pt-BR') : '', x.erro || ''])
+      linhas.push([x.nome || '', (x.id.match(/^(\d+)@c\.us$/) || [])[1] || x.id, NOME_CONTATO[x.status] || x.status, x.respondeu ? 'sim' : '', x.modelo || '', x.em ? new Date(x.em).toLocaleString('pt-BR') : '', x.erro || ''])
     );
     const csv = '﻿' + linhas.map((l) => l.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';')).join('\n');
     const a = document.createElement('a');
@@ -1428,8 +1469,9 @@
 
       <div class="cartao"><h3><span class="passo">2</span>O que enviar?</h3>
         <select id="usarResp" style="margin-bottom:10px"><option value="">✍️ Escrever aqui</option>${scripts.length ? `<optgroup label="Scripts">${scripts.map((s) => `<option value="s:${esc(s.id)}">🔗 ${esc(s.nome)}</option>`).join('')}</optgroup>` : ''}<optgroup label="Respostas rápidas">${respostas.map((r) => `<option value="${esc(r.id)}">⚡ ${esc((r.pasta ? r.pasta + ' › ' : '') + r.nome)}</option>`).join('')}</optgroup></select>
+        <div class="modelos" id="modelos"></div>
         <div id="etapas"></div>
-        <div class="dica" style="margin-top:8px">Dica: <code>{Oi|Olá|E aí}</code> sorteia uma opção para cada lead e <code>{primeiro_nome}</code> coloca o nome. Isso ajuda a evitar bloqueio.</div>
+        <div class="dica" style="margin-top:8px">🔀 Crie até 3 modelos diferentes: cada lead recebe um deles, sorteado. Mensagens variadas diminuem o risco de bloqueio.<br>Dica: <code>{Oi|Olá|E aí}</code> sorteia uma opção para cada lead e <code>{primeiro_nome}</code> coloca o nome.</div>
       </div>
 
       <details class="cartao"><summary>Mais opções (etiquetas, abas e filtros)</summary>
@@ -1456,8 +1498,66 @@
       <div id="estimativa" class="dica"></div>`;
     rodape(`<button class="btn sec" id="teste">Testar em mim</button><button class="btn" id="criar">${IC.play} Começar envio</button>`);
 
-    const editor = EditorEtapas(corpo.querySelector('#etapas'), base ? base.etapas : [{ tipo: 'texto', texto: '', espera: 2 }], null, { semPrevia: true });
     const q = (s) => corpo.querySelector(s);
+    // Modelos (variações): até 3 sequências diferentes, cada lead recebe uma sorteada
+    const MAX_MODELOS = 3;
+    const iniciais = base && base.variacoes && base.variacoes.length ? base.variacoes : [base ? base.etapas : [{ tipo: 'texto', texto: '', espera: 2 }]];
+    const editores = [];
+    let modeloAtivo = 0;
+    function novoModelo(etapas) {
+      const caixa = document.createElement('div');
+      q('#etapas').appendChild(caixa);
+      editores.push({ caixa, ed: EditorEtapas(caixa, etapas, null, { semPrevia: true }) });
+    }
+    function desenharModelos() {
+      editores.forEach((m, k) => m.caixa.classList.toggle('oculto', k !== modeloAtivo));
+      q('#modelos').innerHTML =
+        editores.map((_, k) => `<button type="button" class="modelo ${k === modeloAtivo ? 'ativo' : ''}" data-modelo="${k}">Modelo ${k + 1}${editores.length > 1 ? `<span class="x" data-tirar-modelo="${k}" title="Remover este modelo">✕</span>` : ''}</button>`).join('') +
+        (editores.length < MAX_MODELOS ? `<button type="button" class="add-modelo" id="addModelo">+ Outro modelo</button>` : '');
+    }
+    iniciais.slice(0, MAX_MODELOS).forEach(novoModelo);
+    desenharModelos();
+    q('#modelos').onclick = (e) => {
+      const tirar = e.target.closest('[data-tirar-modelo]');
+      if (tirar) {
+        const k = Number(tirar.dataset.tirarModelo);
+        if (!confirm(`Remover o Modelo ${k + 1}?`)) return;
+        editores[k].caixa.remove();
+        editores.splice(k, 1);
+        modeloAtivo = Math.min(modeloAtivo >= k && modeloAtivo > 0 ? modeloAtivo - 1 : modeloAtivo, editores.length - 1);
+        return desenharModelos();
+      }
+      if (e.target.closest('#addModelo')) {
+        // Começa como cópia do modelo aberto, para só mudar o que quiser
+        novoModelo(editores[modeloAtivo].ed.valor());
+        modeloAtivo = editores.length - 1;
+        avisar(`Modelo ${modeloAtivo + 1} criado como cópia. Mude o texto para ficar diferente.`, 'info', 5000);
+        return desenharModelos();
+      }
+      const m = e.target.closest('[data-modelo]');
+      if (m) {
+        modeloAtivo = Number(m.dataset.modelo);
+        desenharModelos();
+      }
+    };
+    const editor = {
+      validar() {
+        for (let k = 0; k < editores.length; k++) {
+          const erro = editores[k].ed.validar();
+          if (erro) return editores.length > 1 ? `Modelo ${k + 1}: ${erro}` : erro;
+          if (editores.length > 1 && !editores[k].ed.valor().length) return `O Modelo ${k + 1} está vazio. Preencha ou remova (✕).`;
+        }
+        if (editores.length > 1) {
+          const assin = editores.map((m) => JSON.stringify(m.ed.valor()));
+          const k = assin.findIndex((a, j) => assin.indexOf(a) !== j);
+          if (k >= 0) return `O Modelo ${k + 1} está igual a outro. Mude o texto ou remova (✕).`;
+        }
+        return '';
+      },
+      valor: () => editores[modeloAtivo].ed.valor(),
+      todos: () => editores.map((m) => m.ed.valor()),
+      definir: (etapas) => editores[modeloAtivo].ed.definir(etapas),
+    };
     const qq = (s) => [...corpo.querySelectorAll(s)];
     let publico = null;
     const selGrupos = seletorMulti(q('#origemGrupos'), opsGrupos, [], () => atualizarPublico(), 'Nenhuma escolhida ainda');
@@ -1615,7 +1715,7 @@
       if (erro) return avisar(erro, 'erro');
       try {
         await enviarParaMim(editor.valor());
-        avisar('Teste enviado para você (com o nome "Maria Teste").', 'ok');
+        avisar(`Teste${editores.length > 1 ? ` do Modelo ${modeloAtivo + 1}` : ''} enviado para você (com o nome "Maria Teste").`, 'ok');
       } catch (e) {
         avisar(e.message, 'erro');
       }
@@ -1626,7 +1726,8 @@
       if (!publico.contatos.length) return avisar('Ninguém para receber com essas opções.', 'erro');
       const erro = editor.validar();
       if (erro) return avisar(erro, 'erro');
-      const etapas = editor.valor();
+      const variacoes = editor.todos().filter((v) => v.length);
+      const etapas = variacoes[0] || [];
       const acoes = {
         addAba: q('#addAba').value,
         removerAba: q('#remAba').value,
@@ -1635,7 +1736,7 @@
       };
       const temAcao = acoes.addAba || acoes.removerAba || acoes.addEtiquetas.length || acoes.removerEtiquetas.length;
       if (!etapas.length && !temAcao) return avisar('Coloque o que enviar (passo 2).', 'erro');
-      if (!confirm(`Começar a enviar para ${publico.contatos.length} lead(s)?\n\nO envio é lento de propósito (${cfg.intervaloMin}–${cfg.intervaloMax}s entre cada um) e segue em segundo plano.`)) return;
+      if (!confirm(`Começar a enviar para ${publico.contatos.length} lead(s)?${variacoes.length > 1 ? `\n\n🔀 ${variacoes.length} modelos: cada lead recebe um sorteado.` : ''}\n\nO envio é lento de propósito (${cfg.intervaloMin}–${cfg.intervaloMax}s entre cada um) e segue em segundo plano.`)) return;
       const origem = q('#origem').value;
       const c = {
         id: VF.novoId(),
@@ -1646,6 +1747,7 @@
         origem: { tipo: origem, valores: origem === 'grupos' ? selGrupos.valor() : [] },
         excluirEtiquetas: selExcl.valor(),
         etapas,
+        variacoes: variacoes.length > 1 ? variacoes : [],
         acoes,
         aoResponder: { addAba: q('#respAba').value, addEtiqueta: q('#respEtiq').value },
         pularRecenteHoras: Number(q('#recente').value) || 0,
@@ -2562,8 +2664,18 @@
       }
 
       const nome = nomeDe(ids, '') || contato.nome || (info && info.nome) || (await rpc('nomeContato', id).catch(() => ''));
-      const temMensagem = (campanha.etapas || []).length > 0;
-      if (temMensagem) await enviarEtapas(id, campanha.etapas, { nome, vendedor: cfg.nomeVendedor }, { digitacao: cfg.simularDigitacao });
+      const variacoes = (campanha.variacoes || []).filter((v) => v && v.length);
+      let modelo = 0;
+      if (variacoes.length > 1) {
+        // Sorteio, puxando para o modelo menos usado até agora (fica equilibrado)
+        const usos = variacoes.map((_, k) => campanha.contatos.filter((x) => x.modelo === k + 1).length);
+        const menor = Math.min(...usos);
+        const candidatos = usos.map((u, k) => (u <= menor + 1 ? k : -1)).filter((k) => k >= 0);
+        modelo = candidatos[Math.floor(Math.random() * candidatos.length)] + 1;
+      }
+      const etapasEnvio = modelo ? variacoes[modelo - 1] : campanha.etapas || [];
+      const temMensagem = etapasEnvio.length > 0;
+      if (temMensagem) await enviarEtapas(id, etapasEnvio, { nome, vendedor: cfg.nomeVendedor }, { digitacao: cfg.simularDigitacao });
 
       const avisos = [];
       const a = campanha.acoes || {};
@@ -2581,7 +2693,7 @@
       if (a.addAba) await alterarAba(a.addAba, ids, nome, true);
       if (a.removerAba) await alterarAba(a.removerAba, ids, nome, false);
 
-      await salvarContato(campanha.id, i, { status: 'enviado', id, ids, nome, erro: avisos.join(' | '), em: Date.now() });
+      await salvarContato(campanha.id, i, { status: 'enviado', id, ids, nome, erro: avisos.join(' | '), em: Date.now(), ...(modelo ? { modelo } : {}) });
       motor.falhasSeguidas = 0;
       if (temMensagem) {
         await VF.somarEnvioHoje();

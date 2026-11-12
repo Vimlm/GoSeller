@@ -186,6 +186,10 @@
     },
 
     async abrirChat(id) {
+      // Se a conversa ainda não existe na lista (ex.: número de planilha), cria antes de abrir
+      try {
+        await WPP.chat.find(id);
+      } catch (e) {}
       await WPP.chat.openChatBottom(id);
       return true;
     },

@@ -152,7 +152,10 @@ const VF = (() => {
     const usadas = new Set();
     const marcar = (etapas) => (etapas || []).forEach((e) => e.midiaId && usadas.add(e.midiaId));
     (tudo.respostas || []).forEach((r) => marcar(r.etapas));
-    Object.keys(tudo).filter((k) => k.startsWith('campanha:')).forEach((k) => marcar(tudo[k].etapas));
+    Object.keys(tudo).filter((k) => k.startsWith('campanha:')).forEach((k) => {
+      marcar(tudo[k].etapas);
+      (tudo[k].variacoes || []).forEach(marcar);
+    });
     const orfas = Object.keys(tudo).filter((k) => k.startsWith('midia:') && !usadas.has(k.slice(6)));
     if (orfas.length) await apagar(orfas);
     return orfas.length;
