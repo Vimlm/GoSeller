@@ -156,6 +156,7 @@ const VF = (() => {
       marcar(tudo[k].etapas);
       (tudo[k].variacoes || []).forEach(marcar);
     });
+    Object.values(tudo.automacoes || {}).forEach((a) => (a.passos || []).forEach((p) => (p.variacoes || []).forEach(marcar)));
     const orfas = Object.keys(tudo).filter((k) => k.startsWith('midia:') && !usadas.has(k.slice(6)));
     if (orfas.length) await apagar(orfas);
     return orfas.length;

@@ -194,6 +194,7 @@
     lupa: '<svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
     lapis: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/></svg>',
     lixo: '<svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>',
+    kanban: '<svg viewBox="0 0 24 24"><rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="10" y="4" width="5" height="10" rx="1.5"/><rect x="17" y="4" width="4" height="13" rx="1.5"/></svg>',
     chat: '<svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20.5l1.4-5A8 8 0 1 1 21 12z"/></svg>',
   };
 
@@ -220,6 +221,7 @@
     ['respostas', 'raio', 'Respostas rápidas'],
     ['envio', 'aviao', 'Envio em massa'],
     ['abas', 'funil', 'Abas'],
+    ['kanban', 'kanban', 'Kanban automático (servidor)'],
     ['naoperturbe', 'proibido', 'Não perturbe'],
     ['config', 'engrenagem', 'Configurações'],
   ];
@@ -230,6 +232,7 @@
       <div class="pilulas" id="pilulas"></div>
       <button class="icone-btn" id="novaAba" title="Criar nova aba">${IC.pastaMais}</button>
       <button class="icone-btn" data-abrir="abas" title="Organizar abas">${IC.lista}</button>
+      <button class="icone-btn" id="abrirKanbanTopo" title="Quadro Kanban">${IC.kanban}</button>
       <button class="status-envio parado" id="statusEnvio">${IC.aviao}<span>Envio em massa</span></button>
     </header>
     <nav class="trilho" id="trilho">
@@ -245,6 +248,7 @@
       <div class="lat-rodape oculto" id="rodape"></div>
     </aside>`;
   raizFlut.innerHTML = `
+    <div class="kanban oculto" id="kanban"></div>
     <div class="pop oculto" id="pop"></div>
     <div class="sugestoes oculto" id="sugestoes"></div>
     <div class="avisos" id="avisos"></div>
@@ -490,6 +494,7 @@
     if (b) abrirLateral(b.dataset.abrir);
   });
   $('#fechar').addEventListener('click', fecharLateral);
+  $('#abrirKanbanTopo').addEventListener('click', () => (kanbanAberto ? fecharKanban() : abrirKanban()));
 
   function rodape(html) {
     const r = $('#rodape');
@@ -512,7 +517,7 @@
 
   // Telas com formulário não são redesenhadas sozinhas (para não apagar o que a pessoa está digitando)
   const telaComFormulario = () =>
-    (secaoAtual === 'respostas' && visao) || (secaoAtual === 'envio' && visao && (visao === 'nova' || visao.startsWith('duplicar:'))) || secaoAtual === 'config' || (secaoAtual === 'abas' && visao);
+    (secaoAtual === 'respostas' && visao) || (secaoAtual === 'envio' && visao && (visao === 'nova' || visao.startsWith('duplicar:'))) || secaoAtual === 'config' || secaoAtual === 'kanban' || (secaoAtual === 'abas' && visao);
 
   // =====================================================================
   // TELA: Contato aberto
@@ -1199,6 +1204,84 @@
     };
   }
 
+  // Até 3 "modelos" (variações) de uma sequência de mensagens: cada lead recebe um sorteado.
+  // Usado nas campanhas e nas mensagens automáticas das abas.
+  function EditorModelos(el, iniciais, opcoes = {}) {
+    const MAX = opcoes.max || 3;
+    el.innerHTML = '<div class="modelos"></div><div class="modelos-eds"></div>';
+    const barra = el.querySelector('.modelos');
+    const eds = el.querySelector('.modelos-eds');
+    const editores = [];
+    let ativo = 0;
+    function novo(etapas) {
+      const caixa = document.createElement('div');
+      eds.appendChild(caixa);
+      editores.push({ caixa, ed: EditorEtapas(caixa, etapas, null, { semPrevia: true }) });
+    }
+    function desenhar() {
+      editores.forEach((m, k) => m.caixa.classList.toggle('oculto', k !== ativo));
+      barra.innerHTML =
+        editores.map((_, k) => `<button type="button" class="modelo ${k === ativo ? 'ativo' : ''}" data-modelo="${k}">Modelo ${k + 1}${editores.length > 1 ? `<span class="x" data-tirar-modelo="${k}" title="Remover este modelo">✕</span>` : ''}</button>`).join('') +
+        (editores.length < MAX ? `<button type="button" class="add-modelo" data-add-modelo>+ Outro modelo</button>` : '') +
+        (editores.length > 1 ? '<span class="dica">sorteado para cada lead</span>' : '');
+    }
+    (iniciais && iniciais.length ? iniciais : [[{ tipo: 'texto', texto: '', espera: 2 }]]).slice(0, MAX).forEach(novo);
+    desenhar();
+    barra.addEventListener('click', (e) => {
+      const tirar = e.target.closest('[data-tirar-modelo]');
+      if (tirar) {
+        const k = Number(tirar.dataset.tirarModelo);
+        if (!confirm(`Remover o Modelo ${k + 1}?`)) return;
+        editores[k].caixa.remove();
+        editores.splice(k, 1);
+        ativo = Math.min(ativo >= k && ativo > 0 ? ativo - 1 : ativo, editores.length - 1);
+        return desenhar();
+      }
+      if (e.target.closest('[data-add-modelo]')) {
+        novo(editores[ativo].ed.valor()); // começa como cópia do modelo aberto
+        ativo = editores.length - 1;
+        avisar(`Modelo ${ativo + 1} criado como cópia. Mude o texto para ficar diferente.`, 'info', 5000);
+        return desenhar();
+      }
+      const m = e.target.closest('[data-modelo]');
+      if (m) {
+        ativo = Number(m.dataset.modelo);
+        desenhar();
+      }
+    });
+    return {
+      validar(prefixo = '') {
+        const p = (t) => (prefixo ? prefixo + ': ' : '') + t;
+        for (let k = 0; k < editores.length; k++) {
+          const erro = editores[k].ed.validar();
+          if (erro) return p(editores.length > 1 ? `Modelo ${k + 1}: ${erro}` : erro);
+          if (editores.length > 1 && !editores[k].ed.valor().length) return p(`O Modelo ${k + 1} está vazio. Preencha ou remova (✕).`);
+        }
+        if (editores.length > 1) {
+          const assin = editores.map((m) => JSON.stringify(m.ed.valor()));
+          const k = assin.findIndex((a, j) => assin.indexOf(a) !== j);
+          if (k >= 0) return p(`O Modelo ${k + 1} está igual a outro. Mude o texto ou remova (✕).`);
+        }
+        return '';
+      },
+      valor: () => editores[ativo].ed.valor(),
+      todos: () => editores.map((m) => m.ed.valor()),
+      definir: (etapas) => editores[ativo].ed.definir(etapas),
+      ativo: () => ativo,
+      quantos: () => editores.length,
+    };
+  }
+
+  // Opções "usar uma resposta rápida / script" (campanhas e automações)
+  const opcoesRespostas = (primeira) =>
+    `<option value="">${primeira}</option>${scripts.length ? `<optgroup label="Scripts">${scripts.map((s) => `<option value="s:${esc(s.id)}">🔗 ${esc(s.nome)}</option>`).join('')}</optgroup>` : ''}<optgroup label="Respostas rápidas">${respostas.map((r) => `<option value="${esc(r.id)}">⚡ ${esc((r.pasta ? r.pasta + ' › ' : '') + r.nome)}</option>`).join('')}</optgroup>`;
+  function etapasDaOpcao(v) {
+    const s = v.startsWith('s:') && scripts.find((x) => x.id === v.slice(2));
+    if (s) return etapasDoScript(s);
+    const r = respostas.find((x) => x.id === v);
+    return r ? r.etapas : null;
+  }
+
   async function enviarParaMim(etapas) {
     const eu = await rpc('meuId');
     if (!eu) throw new Error('Não achei o seu número.');
@@ -1469,8 +1552,7 @@
 
       <div class="cartao"><h3><span class="passo">2</span>O que enviar?</h3>
         <select id="usarResp" style="margin-bottom:10px"><option value="">✍️ Escrever aqui</option>${scripts.length ? `<optgroup label="Scripts">${scripts.map((s) => `<option value="s:${esc(s.id)}">🔗 ${esc(s.nome)}</option>`).join('')}</optgroup>` : ''}<optgroup label="Respostas rápidas">${respostas.map((r) => `<option value="${esc(r.id)}">⚡ ${esc((r.pasta ? r.pasta + ' › ' : '') + r.nome)}</option>`).join('')}</optgroup></select>
-        <div class="modelos" id="modelos"></div>
-        <div id="etapas"></div>
+        <div id="modelosCamp"></div>
         <div class="dica" style="margin-top:8px">🔀 Crie até 3 modelos diferentes: cada lead recebe um deles, sorteado. Mensagens variadas diminuem o risco de bloqueio.<br>Dica: <code>{Oi|Olá|E aí}</code> sorteia uma opção para cada lead e <code>{primeiro_nome}</code> coloca o nome.</div>
       </div>
 
@@ -1499,65 +1581,7 @@
     rodape(`<button class="btn sec" id="teste">Testar em mim</button><button class="btn" id="criar">${IC.play} Começar envio</button>`);
 
     const q = (s) => corpo.querySelector(s);
-    // Modelos (variações): até 3 sequências diferentes, cada lead recebe uma sorteada
-    const MAX_MODELOS = 3;
-    const iniciais = base && base.variacoes && base.variacoes.length ? base.variacoes : [base ? base.etapas : [{ tipo: 'texto', texto: '', espera: 2 }]];
-    const editores = [];
-    let modeloAtivo = 0;
-    function novoModelo(etapas) {
-      const caixa = document.createElement('div');
-      q('#etapas').appendChild(caixa);
-      editores.push({ caixa, ed: EditorEtapas(caixa, etapas, null, { semPrevia: true }) });
-    }
-    function desenharModelos() {
-      editores.forEach((m, k) => m.caixa.classList.toggle('oculto', k !== modeloAtivo));
-      q('#modelos').innerHTML =
-        editores.map((_, k) => `<button type="button" class="modelo ${k === modeloAtivo ? 'ativo' : ''}" data-modelo="${k}">Modelo ${k + 1}${editores.length > 1 ? `<span class="x" data-tirar-modelo="${k}" title="Remover este modelo">✕</span>` : ''}</button>`).join('') +
-        (editores.length < MAX_MODELOS ? `<button type="button" class="add-modelo" id="addModelo">+ Outro modelo</button>` : '');
-    }
-    iniciais.slice(0, MAX_MODELOS).forEach(novoModelo);
-    desenharModelos();
-    q('#modelos').onclick = (e) => {
-      const tirar = e.target.closest('[data-tirar-modelo]');
-      if (tirar) {
-        const k = Number(tirar.dataset.tirarModelo);
-        if (!confirm(`Remover o Modelo ${k + 1}?`)) return;
-        editores[k].caixa.remove();
-        editores.splice(k, 1);
-        modeloAtivo = Math.min(modeloAtivo >= k && modeloAtivo > 0 ? modeloAtivo - 1 : modeloAtivo, editores.length - 1);
-        return desenharModelos();
-      }
-      if (e.target.closest('#addModelo')) {
-        // Começa como cópia do modelo aberto, para só mudar o que quiser
-        novoModelo(editores[modeloAtivo].ed.valor());
-        modeloAtivo = editores.length - 1;
-        avisar(`Modelo ${modeloAtivo + 1} criado como cópia. Mude o texto para ficar diferente.`, 'info', 5000);
-        return desenharModelos();
-      }
-      const m = e.target.closest('[data-modelo]');
-      if (m) {
-        modeloAtivo = Number(m.dataset.modelo);
-        desenharModelos();
-      }
-    };
-    const editor = {
-      validar() {
-        for (let k = 0; k < editores.length; k++) {
-          const erro = editores[k].ed.validar();
-          if (erro) return editores.length > 1 ? `Modelo ${k + 1}: ${erro}` : erro;
-          if (editores.length > 1 && !editores[k].ed.valor().length) return `O Modelo ${k + 1} está vazio. Preencha ou remova (✕).`;
-        }
-        if (editores.length > 1) {
-          const assin = editores.map((m) => JSON.stringify(m.ed.valor()));
-          const k = assin.findIndex((a, j) => assin.indexOf(a) !== j);
-          if (k >= 0) return `O Modelo ${k + 1} está igual a outro. Mude o texto ou remova (✕).`;
-        }
-        return '';
-      },
-      valor: () => editores[modeloAtivo].ed.valor(),
-      todos: () => editores.map((m) => m.ed.valor()),
-      definir: (etapas) => editores[modeloAtivo].ed.definir(etapas),
-    };
+    const editor = EditorModelos(q('#modelosCamp'), base && base.variacoes && base.variacoes.length ? base.variacoes : [base ? base.etapas : [{ tipo: 'texto', texto: '', espera: 2 }]]);
     const qq = (s) => [...corpo.querySelectorAll(s)];
     let publico = null;
     const selGrupos = seletorMulti(q('#origemGrupos'), opsGrupos, [], () => atualizarPublico(), 'Nenhuma escolhida ainda');
@@ -1696,7 +1720,7 @@
       }, 400);
     }
     corpo.oninput = corpo.onchange = (e) => {
-      if (e.target.closest('#etapas') || e.target.id === 'nome' || e.target.id === 'usarResp') return;
+      if (e.target.closest('#modelosCamp') || e.target.id === 'nome' || e.target.id === 'usarResp') return;
       if (['addAba', 'remAba', 'respAba', 'respEtiq', 'recente', 'arquivoCSV'].includes(e.target.id)) return;
       atualizarPublico();
     };
@@ -1715,7 +1739,7 @@
       if (erro) return avisar(erro, 'erro');
       try {
         await enviarParaMim(editor.valor());
-        avisar(`Teste${editores.length > 1 ? ` do Modelo ${modeloAtivo + 1}` : ''} enviado para você (com o nome "Maria Teste").`, 'ok');
+        avisar(`Teste${editor.quantos() > 1 ? ` do Modelo ${editor.ativo() + 1}` : ''} enviado para você (com o nome "Maria Teste").`, 'ok');
       } catch (e) {
         avisar(e.message, 'erro');
       }
@@ -1790,7 +1814,8 @@
   }
 
   async function excluirAba(a) {
-    if (!confirm(`Excluir a aba "${a.nome}"?\n\nOs leads e as conversas continuam no WhatsApp, só a aba some.`)) return false;
+    if (!confirm(`Excluir a aba "${a.nome}"?\n\nOs leads e as conversas continuam no WhatsApp, só a aba some.${automacoes[a.id] ? '\n\nA sequência automática desta aba também para.' : ''}`)) return false;
+    if (automacoes[a.id]) await apagarAutomacao(a.id).catch((e) => avisar('Sequência automática: ' + e.message, 'erro'));
     abas = (await VF.ler('abas', [])).filter((x) => x.id !== a.id);
     await VF.gravar('abas', abas);
     if (abaSelecionada === a.id) selecionarAba('todas');
@@ -1805,7 +1830,7 @@
   }
 
   telas.abas = async (corpo) => {
-    if (visao) return telaEditarAba(corpo, visao === 'nova' ? null : visao.slice(7));
+    if (visao) return telaEditarAba(corpo, visao === 'nova' ? null : visao.slice(7).replace(/:auto$/, ''), visao.endsWith(':auto'));
     corpo.innerHTML = `
       <div class="lat-titulo"><h2>Abas</h2><button class="btn peq" id="nova">${IC.mais2} Nova aba</button></div>
       <div class="dica" style="margin-bottom:12px">As abas ficam na barra de cima e separam as conversas. Para mudar a ordem, <b>clique, segure e arraste</b> a aba (aqui ou lá em cima).
@@ -1850,14 +1875,18 @@
     await VF.gravar('abas', abas);
   }
 
-  function telaEditarAba(corpo, id) {
+  function telaEditarAba(corpo, id, focarAuto) {
     const orig = id ? abas.find((x) => x.id === id) : null;
     if (id && !orig) return irPara(null);
     const a = orig ? JSON.parse(JSON.stringify(orig)) : { id: VF.novoId(), nome: '', cor: CORES[abas.length % CORES.length], tipo: 'manual', chats: [] };
+    corpo.innerHTML = '<div id="formAba"></div><div id="autoAba"></div>';
+    const formAba = corpo.querySelector('#formAba');
+    const autoAba = corpo.querySelector('#autoAba');
     function desenhar() {
       const nome = corpo.querySelector('#nomeAba')?.value ?? a.nome;
       const livre = !CORES.includes(a.cor);
-      corpo.innerHTML = `
+      autoAba.classList.toggle('oculto', a.tipo === 'etiqueta');
+      formAba.innerHTML = `
         <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>${orig ? 'Editar aba' : 'Nova aba'}</h2></div>
         <label class="campo">Nome da aba<input type="text" id="nomeAba" maxlength="40" value="${esc(nome)}" placeholder="Ex.: Leads Enfermagem"></label>
         <div class="campo">Cor
@@ -1884,8 +1913,14 @@
         }`;
     }
     desenhar();
+    const edAuto = EditorAutomacao(autoAba, a);
+    if (focarAuto) {
+      edAuto.abrir();
+      setTimeout(() => autoAba.scrollIntoView({ block: 'start' }), 50);
+    }
     rodape(`${orig ? `<button class="btn perigo" id="excluirAba">Excluir aba</button>` : ''}<button class="btn" id="salvarAba">Salvar</button>`);
     corpo.oninput = (e) => {
+      if (e.target.closest('#autoAba')) return;
       if (e.target.id === 'nomeAba') {
         const p = corpo.querySelector('.previa-pilula .pilula');
         p.lastChild.textContent = e.target.value || 'Nome da aba';
@@ -1898,6 +1933,7 @@
       }
     };
     corpo.onchange = (e) => {
+      if (e.target.closest('#autoAba')) return;
       if (e.target.name === 'tipo') {
         a.tipo = e.target.value;
         desenhar();
@@ -1923,13 +1959,704 @@
       a.nome = corpo.querySelector('#nomeAba').value.trim();
       if (!a.nome) return avisar('Dê um nome para a aba.', 'erro');
       if (a.tipo === 'etiqueta' && !a.etiquetaId) return avisar('Escolha a etiqueta.', 'erro');
+      const acaoAuto = a.tipo === 'etiqueta' ? (automacoes[a.id] ? 'apagar' : null) : edAuto.acao();
+      if (acaoAuto === 'salvar') {
+        const erro = edAuto.validar();
+        if (erro) return avisar(erro, 'erro');
+      }
+      const botao = $('#salvarAba');
+      botao.disabled = true;
       await salvarAba(a);
+      try {
+        if (acaoAuto === 'salvar') await salvarAutomacao(a, edAuto.valor(), edAuto.nova);
+        if (acaoAuto === 'apagar') await apagarAutomacao(a.id);
+      } catch (e) {
+        botao.disabled = false;
+        return avisar('A aba foi salva, mas a sequência automática não: ' + e.message, 'erro', 9000);
+      }
       if (abaSelecionada === a.id) selecionarAba(a.id);
       avisar(orig ? 'Aba salva.' : `Aba "${a.nome}" criada.${a.tipo === 'etiqueta' ? '' : ' Abra uma conversa e marque a aba no ícone 👤.'}`, 'ok');
       irPara(null);
     };
     if (!orig) corpo.querySelector('#nomeAba').focus();
   }
+
+  // =====================================================================
+  // KANBAN + SEQUÊNCIA AUTOMÁTICA NO SERVIDOR
+  // As abas "escolhidas por mim" viram colunas. Cada aba pode ter uma sequência
+  // de mensagens que o servidor envia sozinho (mesmo com o computador desligado).
+  // =====================================================================
+  let servidor = { chave: '' };
+  let automacoes = {}; // { abaId: { ativa, passos: [{ espera: { n, unidade }, variacoes: [[etapas]] }], aoResponder, aoTerminar } }
+  let kanban = { inscricoes: [], whatsapp: null, atualizado: 0, erro: '' };
+  let kanbanAberto = false;
+  let arrastandoCard = false;
+  const servidorLigado = () => !!servidor.chave;
+  // Chave para comparar números (ignora o 9º dígito dos celulares do Brasil)
+  const chaveNum = (s) => {
+    let d = String(s || '').split('@')[0].replace(/\D/g, '');
+    if (d.startsWith('55') && d.length === 13 && d[4] === '9') d = d.slice(0, 4) + d.slice(5);
+    return d;
+  };
+  const colunasKanban = () => abas.filter((a) => a.tipo !== 'etiqueta');
+  const UNIDADES = { min: 'minutos', h: 'horas', d: 'dias' };
+
+  async function api(metodo, caminho, corpo) {
+    const r = await chrome.runtime.sendMessage({ tipo: 'api', metodo, caminho, corpo });
+    if (!r) throw new Error('A extensão não respondeu. Recarregue a página.');
+    if (r.erro) throw new Error(r.erro);
+    return r.dados;
+  }
+
+  async function numeroDoLead(ids) {
+    let c = ids.find((x) => x.endsWith('@c.us'));
+    for (const x of ids) {
+      if (c) break;
+      c = (await equivalentes(x)).find((y) => y.endsWith('@c.us'));
+    }
+    return c ? c.split('@')[0] : '';
+  }
+
+  function inscricaoDe(abaId, ids) {
+    const ks = new Set(ids.map(chaveNum));
+    return kanban.inscricoes.find((i) => i.abaId === abaId && (ks.has(chaveNum(i.numero)) || (i.ids || []).some((x) => ks.has(chaveNum(x)))));
+  }
+
+  async function montarEntradas(abaId, chats) {
+    const lista = [];
+    let semNumero = 0;
+    for (const c of chats) {
+      const numero = await numeroDoLead(c.ids);
+      if (!numero) semNumero++;
+      // em = quando entrou na aba (sem data = antigo: o servidor não recomeça quem já terminou/respondeu)
+      else lista.push({ abaId, numero, ids: c.ids, nome: nomeDe(c.ids, c.nome), em: c.em || 0 });
+    }
+    if (semNumero) avisar(`${semNumero} lead(s) sem número de telefone visível ficaram fora da sequência automática.`, 'erro', 7000);
+    return lista;
+  }
+
+  // Lead entrou/saiu de uma aba com sequência automática -> avisa o servidor
+  async function avisarMudancasAbas(antes, depois) {
+    if (!servidorLigado()) return;
+    const mapa = new Map((antes || []).map((a) => [a.id, a]));
+    const novos = [];
+    const sair = [];
+    for (const a of depois || []) {
+      if (!automacoes[a.id] || a.tipo === 'etiqueta') continue;
+      const velhos = (mapa.get(a.id) || {}).chats || [];
+      const atuais = a.chats || [];
+      atuais.forEach((c) => !velhos.some((v) => v.ids.some((x) => c.ids.includes(x))) && novos.push([a.id, c]));
+      for (const v of velhos) if (!atuais.some((c) => c.ids.some((x) => v.ids.includes(x)))) sair.push({ abaId: a.id, numero: await numeroDoLead(v.ids) });
+    }
+    if (!novos.length && !sair.length) return;
+    const entrar = [];
+    for (const [abaId, c] of novos) entrar.push(...(await montarEntradas(abaId, [c])));
+    const pacote = { entrar, sair: sair.filter((x) => x.numero) };
+    try {
+      await api('POST', '/leads/mudancas', pacote);
+      setTimeout(sincronizarKanban, 1500);
+    } catch (e) {
+      // Sem internet/servidor fora: guarda e tenta de novo na próxima sincronização
+      const fila = await VF.ler('kanbanFila', { entrar: [], sair: [] });
+      await VF.gravar('kanbanFila', { entrar: [...fila.entrar, ...pacote.entrar], sair: [...fila.sair, ...pacote.sair] });
+    }
+  }
+
+  async function aplicarMovimentos(itens) {
+    const lista = await VF.ler('abas', []);
+    const feitos = [];
+    for (const i of itens) {
+      const de = lista.find((a) => a.id === i.abaId);
+      const para = lista.find((a) => a.id === i.moverPara);
+      const ks = new Set([i.numero, ...(i.ids || [])].map(chaveNum));
+      const casa = (c) => c.ids.some((x) => ks.has(chaveNum(x)));
+      const chat = (de && (de.chats || []).find(casa)) || { ids: i.ids && i.ids.length ? i.ids : [i.numero + '@c.us'], nome: i.nome };
+      if (de) de.chats = (de.chats || []).filter((c) => !casa(c));
+      if (para && !(para.chats || []).some(casa)) (para.chats = para.chats || []).push({ ids: chat.ids, nome: chat.nome || i.nome || '', em: Date.now() });
+      feitos.push({ abaId: i.abaId, numero: i.numero });
+      if (para) avisar(`💬 ${chat.nome || i.nome || 'Um lead'} respondeu e foi para "${para.nome}".`, 'ok', 8000);
+    }
+    await VF.gravar('abas', lista);
+    await api('POST', '/mover-ok', { itens: feitos }).catch(() => {});
+  }
+
+  async function juntarNaoPerturbe(doServidor) {
+    if (!doServidor || !doServidor.length) return;
+    const lista = await VF.ler('naoPerturbe', []);
+    let mexeu = false;
+    for (const n of doServidor) {
+      if (lista.some((x) => x.ids.some((y) => chaveNum(y) === chaveNum(n.numero)))) continue;
+      const d = n.numero;
+      const ids = [d + '@c.us'];
+      if (d.startsWith('55') && d.length === 12) ids.push(d.slice(0, 4) + '9' + d.slice(4) + '@c.us');
+      lista.push({ ids, nome: '', texto: n.texto || '', em: n.em || Date.now() });
+      mexeu = true;
+    }
+    if (mexeu) await VF.gravar('naoPerturbe', lista);
+  }
+
+  let sincronizando = false;
+  async function sincronizarKanban() {
+    if (!servidorLigado() || sincronizando) return;
+    sincronizando = true;
+    try {
+      const fila = await VF.ler('kanbanFila', null);
+      if (fila && (fila.entrar.length || fila.sair.length)) {
+        await api('POST', '/leads/mudancas', fila);
+        await VF.apagar('kanbanFila');
+      }
+      const s = await api('GET', '/sync');
+      kanban = { ...s, atualizado: Date.now(), erro: '' };
+      const mover = s.inscricoes.filter((i) => i.moverPara);
+      if (mover.length) await aplicarMovimentos(mover);
+      await juntarNaoPerturbe(s.naoPerturbe);
+    } catch (e) {
+      kanban.erro = e.message;
+    }
+    sincronizando = false;
+    if (kanbanAberto && !arrastandoCard) desenharKanban();
+  }
+
+  async function carregarServidor() {
+    servidor = await VF.ler('servidor', { chave: '' });
+    automacoes = await VF.ler('automacoes', {});
+    if (servidorLigado() && !Object.keys(automacoes).length) {
+      // Extensão reinstalada / outro computador: traz as sequências do servidor
+      try {
+        const lista = await api('GET', '/automacoes');
+        lista.forEach((a) => (automacoes[a.abaId] = { ativa: a.ativa, passos: a.passos, aoResponder: a.aoResponder, aoTerminar: a.aoTerminar }));
+        if (lista.length) await VF.gravar('automacoes', automacoes);
+      } catch (e) { /* servidor fora */ }
+    }
+    sincronizarKanban();
+  }
+
+  async function salvarAutomacao(aba, v, novaAgora) {
+    const ids = [...new Set([...JSON.stringify(v.passos).matchAll(/"midiaId":"([^"]+)"/g)].map((m) => m[1]))];
+    if (ids.length) {
+      const { faltando } = await api('POST', '/midias/faltando', { ids });
+      if (faltando.length) avisar(`Enviando ${faltando.length} arquivo(s) para o servidor…`, 'info', 4000);
+      for (const id of faltando) {
+        const dataUrl = await VF.lerMidia(id);
+        if (!dataUrl) throw new Error('Um arquivo da sequência sumiu. Escolha o arquivo de novo.');
+        await api('POST', '/midias', { id, dataUrl });
+      }
+    }
+    await api('PUT', '/automacoes/' + aba.id, { nome: aba.nome, ...v });
+    automacoes = { ...(await VF.ler('automacoes', {})), [aba.id]: v };
+    await VF.gravar('automacoes', automacoes);
+    const n = (aba.chats || []).length;
+    if (novaAgora && v.ativa && n && confirm(`Começar a sequência também para os ${n} lead(s) que JÁ estão em "${aba.nome}"?\n\nOK = sim, todos recebem.\nCancelar = só quem entrar daqui pra frente.`)) {
+      const entrar = await montarEntradas(aba.id, aba.chats);
+      await api('POST', '/leads/mudancas', { entrar: entrar.map((x) => ({ ...x, em: Date.now() })) });
+      avisar(`${entrar.length} lead(s) entraram na sequência.`, 'ok');
+    }
+    sincronizarKanban();
+  }
+
+  async function apagarAutomacao(abaId) {
+    if (servidorLigado()) await api('DELETE', '/automacoes/' + abaId);
+    automacoes = await VF.ler('automacoes', {});
+    delete automacoes[abaId];
+    await VF.gravar('automacoes', automacoes);
+    sincronizarKanban();
+  }
+
+  // ---- textos de situação ----
+  function quando(ts) {
+    if (!ts || ts <= Date.now() + 60000) return 'agora';
+    const d = new Date(ts);
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const dia = (x) => new Date(x).toDateString();
+    if (dia(ts) === dia(Date.now())) return 'hoje ' + hora;
+    if (dia(ts) === dia(Date.now() + 86400000)) return 'amanhã ' + hora;
+    return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) + ' ' + hora;
+  }
+  function haQuanto(ts) {
+    if (!ts) return '';
+    const m = Math.max(0, Math.round((Date.now() - ts) / 60000));
+    if (m < 60) return `há ${m} min`;
+    if (m < 1440) return `há ${Math.round(m / 60)} h`;
+    const d = Math.round(m / 1440);
+    return `há ${d} dia${d > 1 ? 's' : ''}`;
+  }
+  function seloInscricao(i, abaId) {
+    if (!i) return '';
+    const total = ((automacoes[abaId] || {}).passos || []).length || '?';
+    const t = {
+      ativo: [`⏳ Mensagem ${i.passo + 1}/${total} · ${quando(i.proximoEm)}`, 'ativo'],
+      pausado: ['⏸ Sequência pausada', 'pausado'],
+      respondeu: ['💬 Respondeu', 'respondeu'],
+      concluido: [`✅ Recebeu as ${i.enviados} mensagens`, 'concluido'],
+      falhou: ['⚠️ ' + (i.erro || 'Erro no envio'), 'falhou'],
+      descadastrou: ['🚫 Pediu para não receber', 'falhou'],
+      saiu: ['', ''],
+    }[i.estado] || ['', ''];
+    if (!t[0]) return '';
+    return `<div class="kselo ${t[1]}" title="${esc(i.erro || '')}">${esc(t[0])}${i.estado === 'ativo' && i.erro ? ' · tentando de novo' : ''}</div>`;
+  }
+
+  // ---- Quadro Kanban (tela grande, por cima do WhatsApp) ----
+  function abrirKanban() {
+    kanbanAberto = true;
+    fecharLateral();
+    $('#kanban').classList.remove('oculto');
+    desenharKanban();
+    sincronizarKanban();
+  }
+  function fecharKanban() {
+    kanbanAberto = false;
+    $('#kanban').classList.add('oculto');
+  }
+
+  function desenharKanban() {
+    const el = $('#kanban');
+    const busca = VF.semAcento((estadoUI.buscaKanban || '').toLowerCase());
+    const zap = kanban.whatsapp;
+    const statusServ = !servidorLigado()
+      ? `<button class="kstatus off" data-k="servidor">⚪ Sequências automáticas desligadas · conectar servidor</button>`
+      : kanban.erro
+        ? `<button class="kstatus erro" data-k="servidor" title="${esc(kanban.erro)}">🔴 Servidor fora do ar</button>`
+        : zap && zap.estado === 'open'
+          ? `<button class="kstatus ok" data-k="servidor">🟢 Servidor enviando · ${esc(VF.numeroDoId((zap.numero || '') + '@c.us') || zap.numero)} · hoje ${kanban.enviosHoje || 0}/${(kanban.config || {}).limiteDia || '?'}${kanban.dentroDoHorario === false ? ' · fora do horário' : ''}</button>`
+          : `<button class="kstatus erro" data-k="servidor">🟠 WhatsApp do servidor desconectado · conectar</button>`;
+    const cols = colunasKanban();
+    const rolagem = el.querySelector('.kcolunas') ? el.querySelector('.kcolunas').scrollLeft : 0;
+    el.innerHTML = `
+      <div class="ktopo">
+        <h2>Kanban</h2>
+        <input type="text" id="kbusca" placeholder="Buscar lead…" value="${esc(estadoUI.buscaKanban || '')}">
+        ${statusServ}
+        <span class="cresce"></span>
+        <button class="btn sec peq" data-k="novaColuna">${IC.mais2} Nova coluna</button>
+        <button class="icone-btn" data-k="fechar" title="Fechar (Esc)">${IC.fechar}</button>
+      </div>
+      <div class="kcolunas">${
+        cols.length
+          ? cols
+              .map((a) => {
+                const auto = automacoes[a.id];
+                let chats = [...(a.chats || [])].map((c, idx) => ({ c, idx })).sort((x, y) => (y.c.em || 0) - (x.c.em || 0));
+                if (busca) chats = chats.filter(({ c }) => VF.semAcento((nomeDe(c.ids, c.nome) + ' ' + c.ids.join(' ')).toLowerCase()).includes(busca));
+                const LIM = 150;
+                return `<div class="kcol" data-col="${esc(a.id)}">
+              <div class="kcol-topo" style="border-top-color:${esc(a.cor || '#25d366')}">
+                <span class="bolinha" style="background:${esc(a.cor || '#25d366')}"></span><b>${esc(a.nome)}</b><span class="kconta">${(a.chats || []).length}</span>
+                <span class="cresce"></span>
+                <button class="kauto ${auto ? (auto.ativa ? 'ligada' : 'pausada') : ''}" data-k="auto" data-aba="${esc(a.id)}" title="${auto ? 'Editar a sequência automática' : 'Criar sequência automática para quem entrar nesta coluna'}">${IC.raio}${auto ? `${auto.passos.length} msg${auto.ativa ? '' : ' · pausada'}` : ''}</button>
+              </div>
+              <div class="kcards">${
+                chats
+                  .slice(0, LIM)
+                  .map(({ c, idx }) => {
+                    const nome = nomeDe(c.ids, c.nome) || VF.numeroDoId(c.ids.find((x) => x.endsWith('@c.us'))) || c.ids[0].split('@')[0];
+                    const num = VF.numeroDoId(c.ids.find((x) => x.endsWith('@c.us')));
+                    return `<div class="kcard" draggable="true" data-aba="${esc(a.id)}" data-i="${idx}" title="Clique para abrir a conversa · arraste para mudar de coluna">
+                      <div class="kcard-nome">${esc(nome)}</div>
+                      <div class="kcard-sub">${esc([num !== nome && num, haQuanto(c.em)].filter(Boolean).join(' · '))}</div>
+                      ${auto ? seloInscricao(inscricaoDe(a.id, c.ids), a.id) : ''}
+                      <button class="kmenu icone-btn" data-k="menu" title="Opções">${IC.mais}</button>
+                    </div>`;
+                  })
+                  .join('') + (chats.length > LIM ? `<div class="dica" style="padding:6px">…e mais ${chats.length - LIM}. Use a busca.</div>` : '') || `<div class="kvazio">${busca ? 'Nada encontrado' : 'Arraste leads para cá'}</div>`
+              }</div></div>`;
+              })
+              .join('')
+          : `<div class="vazio" style="margin:40px auto">Nenhuma coluna ainda. Clique em <b>Nova coluna</b> (cada coluna é uma aba).</div>`
+      }</div>`;
+    el.querySelector('.kcolunas').scrollLeft = rolagem;
+  }
+
+  async function moverEntreAbas(deId, paraId, idx) {
+    if (deId === paraId) return;
+    const lista = await VF.ler('abas', []);
+    const de = lista.find((a) => a.id === deId);
+    const para = lista.find((a) => a.id === paraId);
+    const chat = de && (de.chats || [])[idx];
+    if (!chat || !para) return;
+    de.chats = de.chats.filter((c) => !c.ids.some((x) => chat.ids.includes(x)));
+    para.chats = (para.chats || []).filter((c) => !c.ids.some((x) => chat.ids.includes(x)));
+    para.chats.push({ ...chat, em: Date.now() });
+    abas = lista;
+    if (kanbanAberto) desenharKanban();
+    await VF.gravar('abas', lista);
+    const auto = automacoes[paraId];
+    if (auto && auto.ativa && servidorLigado()) {
+      const p0 = auto.passos[0] || {};
+      const espera = Number((p0.espera || {}).n) || 0;
+      avisar(`${nomeDe(chat.ids, chat.nome) || 'Lead'} entrou em "${para.nome}": a 1ª mensagem automática sai ${espera ? `em ${espera} ${UNIDADES[p0.espera.unidade]}` : 'em instantes'} (no horário de envio).`, 'ok', 7000);
+    }
+  }
+
+  function menuCard(botao, abaId, idx) {
+    const aba = abas.find((a) => a.id === abaId);
+    const chat = aba && (aba.chats || [])[idx];
+    if (!chat) return;
+    const insc = inscricaoDe(abaId, chat.ids);
+    const nome = nomeDe(chat.ids, chat.nome);
+    const acaoServ = (acao, msg) => async () => {
+      try {
+        await api('POST', '/leads/acao', { abaId, numero: insc ? insc.numero : await numeroDoLead(chat.ids), acao, ids: chat.ids, nome });
+        avisar(msg, 'ok');
+        sincronizarKanban();
+      } catch (e) {
+        avisar(e.message, 'erro');
+      }
+    };
+    const itens = [{ texto: '💬 Abrir conversa', acao: () => abrirChatDoKanban(chat) }];
+    if (automacoes[abaId] && servidorLigado()) {
+      if (insc && insc.estado === 'ativo') {
+        itens.push({ texto: '⏩ Enviar a próxima mensagem agora', acao: acaoServ('agora', 'A próxima mensagem sai em instantes (respeitando o horário e o intervalo).') });
+        itens.push({ texto: '⏹ Parar a sequência deste lead', acao: acaoServ('parar', 'Sequência parada para este lead.') });
+      }
+      itens.push({ texto: '↺ Recomeçar a sequência do início', acao: acaoServ('recomecar', 'A sequência recomeçou do início.') });
+    }
+    itens.push({ texto: 'Tirar desta coluna', perigo: true, acao: () => alterarAba(abaId, chat.ids, nome, false) });
+    abrirPop(botao, itens);
+  }
+
+  async function abrirChatDoKanban(chat) {
+    const id = chat.ids.find((x) => x.endsWith('@c.us')) || chat.ids[0];
+    try {
+      await rpc('abrirChat', id);
+      fecharKanban();
+    } catch (e) {
+      avisar('Não consegui abrir essa conversa: ' + e.message, 'erro');
+    }
+  }
+
+  function ligarEventosKanban() {
+    const el = $('#kanban');
+    el.addEventListener('click', async (e) => {
+      const k = e.target.closest('[data-k]');
+      const card = e.target.closest('.kcard');
+      if (k && k.dataset.k === 'fechar') return fecharKanban();
+      if (k && k.dataset.k === 'servidor') return fecharKanban(), abrirLateral('kanban');
+      if (k && k.dataset.k === 'novaColuna') return fecharKanban(), abrirLateral('abas', 'nova');
+      if (k && k.dataset.k === 'auto') return fecharKanban(), abrirLateral('abas', 'editar:' + k.dataset.aba + ':auto');
+      if (k && k.dataset.k === 'menu' && card) return menuCard(k, card.dataset.aba, Number(card.dataset.i));
+      if (card) {
+        const aba = abas.find((a) => a.id === card.dataset.aba);
+        const chat = aba && aba.chats[Number(card.dataset.i)];
+        if (chat) abrirChatDoKanban(chat);
+      }
+    });
+    el.addEventListener('input', (e) => {
+      if (e.target.id !== 'kbusca') return;
+      estadoUI.buscaKanban = e.target.value;
+      const pos = e.target.selectionStart;
+      desenharKanban();
+      const b = el.querySelector('#kbusca');
+      b.focus();
+      b.setSelectionRange(pos, pos);
+    });
+    // Arrastar cartões entre colunas
+    el.addEventListener('dragstart', (e) => {
+      const card = e.target.closest && e.target.closest('.kcard');
+      if (!card) return;
+      arrastandoCard = true;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', card.dataset.aba + '|' + card.dataset.i);
+      setTimeout(() => card.classList.add('arrastando'), 0);
+    });
+    el.addEventListener('dragend', (e) => {
+      arrastandoCard = false;
+      el.querySelectorAll('.arrastando, .kcol.alvo').forEach((x) => x.classList.remove('arrastando', 'alvo'));
+    });
+    el.addEventListener('dragover', (e) => {
+      const col = e.target.closest && e.target.closest('.kcol');
+      if (!col) return;
+      e.preventDefault();
+      el.querySelectorAll('.kcol.alvo').forEach((x) => x !== col && x.classList.remove('alvo'));
+      col.classList.add('alvo');
+    });
+    el.addEventListener('drop', (e) => {
+      const col = e.target.closest && e.target.closest('.kcol');
+      if (!col) return;
+      e.preventDefault();
+      arrastandoCard = false;
+      const [de, i] = (e.dataTransfer.getData('text/plain') || '').split('|');
+      col.classList.remove('alvo');
+      if (de) moverEntreAbas(de, col.dataset.col, Number(i));
+    });
+    document.addEventListener('keydown', (e) => e.key === 'Escape' && kanbanAberto && fecharKanban());
+  }
+
+  // ---- Editor da sequência automática (dentro da tela da aba) ----
+  function EditorAutomacao(el, aba) {
+    const orig = automacoes[aba.id] || null;
+    let ligada = orig ? !!orig.ativa : true;
+    const passos = [];
+    const outras = () => colunasKanban().filter((x) => x.id !== aba.id);
+    const opAbas = (sel, vazio) => `<option value="">${vazio}</option>` + outras().map((x) => `<option value="${esc(x.id)}" ${sel === x.id ? 'selected' : ''}>${esc(x.nome)}</option>`).join('');
+    const n = (est) => kanban.inscricoes.filter((i) => i.abaId === aba.id && i.estado === est).length;
+    el.innerHTML = `
+      <div class="cartao auto-cartao" id="autoCartao">
+        <h3>${IC.raio} Sequência automática <span class="dica">(o servidor envia)</span></h3>
+        ${
+          !servidorLigado()
+            ? `<div class="dica">Quem entrar nesta aba pode receber mensagens sozinho (ex.: remarketing em 1, 3 e 7 dias), mesmo com o computador desligado.<br><br>Para usar, conecte o servidor primeiro: ícone <b>Kanban</b> no menu da esquerda › <b>Chave de acesso</b>.</div>
+               <button type="button" class="btn sec peq" id="autoConectar" style="margin-top:8px">Conectar servidor</button>`
+            : !orig
+              ? `<div class="dica">Quem entrar nesta aba recebe as mensagens sozinho, no horário de envio, mesmo com o computador desligado. Se o lead responder, a sequência para.</div>
+                 <button type="button" class="btn peq" id="autoCriar" style="margin-top:8px">${IC.mais2} Criar sequência automática</button>`
+              : ''
+        }
+        <div id="autoForm" class="${servidorLigado() && orig ? '' : 'oculto'}">
+          <label class="check"><input type="checkbox" id="autoLigada" ${ligada ? 'checked' : ''}> <b>Ligada</b>&nbsp;<span class="dica">(desligada = ninguém recebe; quem estava no meio fica pausado)</span></label>
+          ${orig ? `<div class="dica" style="margin-bottom:8px">Agora: ⏳ ${n('ativo')} na sequência · 💬 ${n('respondeu')} responderam · ✅ ${n('concluido')} concluíram${n('falhou') ? ` · ⚠️ ${n('falhou')} com erro` : ''}</div>` : ''}
+          <div id="autoPassos"></div>
+          <button type="button" class="btn sec peq" id="autoAddPasso" style="width:100%;margin:4px 0 12px">${IC.mais2} Adicionar mensagem</button>
+          <div class="duas">
+            <label class="campo">Se responder: parar e mover para<select id="autoResp">${opAbas((orig && orig.aoResponder || {}).moverPara, '— só parar')}</select></label>
+            <label class="campo">Se terminar sem resposta: mover para<select id="autoFim">${opAbas((orig && orig.aoTerminar || {}).moverPara, '— deixar aqui')}</select></label>
+          </div>
+          <div class="dica">Envio só no horário e no ritmo do servidor (ícone Kanban › Ritmo). Quem escrever "SAIR" não recebe mais.</div>
+          ${orig ? '<button type="button" class="link" id="autoApagar" style="color:var(--vermelho);margin-top:8px">Apagar a sequência desta aba</button>' : ''}
+        </div>
+      </div>`;
+    let existe = !!orig;
+    let apagar = false;
+    const caixaPassos = el.querySelector('#autoPassos');
+    function renumerar() {
+      passos.forEach((p, i) => {
+        p.caixa.querySelector('.passo-n').textContent = `Mensagem ${i + 1}`;
+        p.caixa.querySelector('.passo-depois').textContent = i === 0 ? 'depois de entrar na aba' : 'depois da mensagem anterior';
+      });
+    }
+    function addPasso(p) {
+      const caixa = document.createElement('div');
+      caixa.className = 'passo-auto';
+      const esp = p.espera || { n: passos.length ? 1 : 0, unidade: passos.length ? 'd' : 'min' };
+      caixa.innerHTML = `
+        <div class="passo-topo"><b class="passo-n"></b><span class="cresce"></span><button type="button" class="icone-btn" data-tirar-passo title="Remover esta mensagem">${IC.lixo}</button></div>
+        <div class="passo-espera">Enviar <input type="number" min="0" max="999" class="esp-n" value="${Number(esp.n) || 0}">
+          <select class="esp-u">${Object.entries(UNIDADES).map(([v, t]) => `<option value="${v}" ${esp.unidade === v ? 'selected' : ''}>${t}</option>`).join('')}</select> <span class="passo-depois"></span></div>
+        <select class="usar-resp">${opcoesRespostas('Usar uma resposta rápida ou script…')}</select>
+        <div class="passo-modelos"></div>`;
+      caixaPassos.appendChild(caixa);
+      const modelos = EditorModelos(caixa.querySelector('.passo-modelos'), p.variacoes);
+      const item = { caixa, modelos };
+      passos.push(item);
+      caixa.querySelector('[data-tirar-passo]').onclick = () => {
+        if (passos.length === 1) return avisar('A sequência precisa de pelo menos uma mensagem. Para não usar, desmarque "Ligada" ou apague a sequência.', 'erro');
+        if (!confirm('Remover esta mensagem da sequência?')) return;
+        caixa.remove();
+        passos.splice(passos.indexOf(item), 1);
+        renumerar();
+      };
+      caixa.querySelector('.usar-resp').onchange = (e) => {
+        const et = etapasDaOpcao(e.target.value);
+        if (et) modelos.definir(et);
+        e.target.value = '';
+      };
+      renumerar();
+    }
+    (orig ? orig.passos : []).forEach(addPasso);
+    const mostrarForm = () => {
+      existe = true;
+      apagar = false;
+      el.querySelector('#autoForm').classList.remove('oculto');
+      el.querySelector('#autoCriar')?.remove();
+      if (!passos.length) addPasso({ espera: { n: 0, unidade: 'min' } });
+    };
+    el.querySelector('#autoCriar')?.addEventListener('click', mostrarForm);
+    el.querySelector('#autoConectar')?.addEventListener('click', () => abrirLateral('kanban'));
+    el.querySelector('#autoAddPasso').onclick = () => {
+      if (passos.length >= 15) return avisar('Máximo de 15 mensagens.', 'erro');
+      addPasso({});
+      passos[passos.length - 1].caixa.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    };
+    el.querySelector('#autoLigada').onchange = (e) => (ligada = e.target.checked);
+    el.querySelector('#autoApagar')?.addEventListener('click', () => {
+      if (!confirm('Apagar a sequência automática desta aba?\nQuem está no meio para de receber. (Vale quando clicar em Salvar.)')) return;
+      apagar = true;
+      el.querySelector('#autoForm').classList.add('oculto');
+      el.querySelector('#autoCartao').insertAdjacentHTML('beforeend', '<div class="alerta" style="margin-top:8px">A sequência será apagada ao salvar.</div>');
+    });
+    return {
+      abrir: () => (servidorLigado() ? mostrarForm() : null),
+      acao() {
+        if (!servidorLigado()) return null;
+        if (apagar) return orig ? 'apagar' : null;
+        return existe ? 'salvar' : null;
+      },
+      validar() {
+        if (!passos.length) return 'A sequência automática precisa de pelo menos uma mensagem.';
+        for (let i = 0; i < passos.length; i++) {
+          const erro = passos[i].modelos.validar(`Mensagem ${i + 1}`);
+          if (erro) return erro;
+          if (!passos[i].modelos.todos().some((v) => v.length)) return `Mensagem ${i + 1} está vazia.`;
+        }
+        return '';
+      },
+      valor: () => ({
+        ativa: ligada,
+        passos: passos.map((p) => ({
+          espera: { n: Math.max(0, Number(p.caixa.querySelector('.esp-n').value) || 0), unidade: p.caixa.querySelector('.esp-u').value },
+          variacoes: p.modelos.todos().filter((v) => v.length),
+        })),
+        aoResponder: { moverPara: el.querySelector('#autoResp').value },
+        aoTerminar: { moverPara: el.querySelector('#autoFim').value },
+      }),
+      nova: !orig,
+    };
+  }
+
+  // ---- Tela lateral: servidor (chave, WhatsApp, ritmo) ----
+  let timerQR = null;
+  telas.kanban = async (corpo) => {
+    clearInterval(timerQR);
+    if (!servidorLigado()) {
+      corpo.innerHTML = `
+        <div class="lat-titulo"><h2>Kanban automático</h2></div>
+        <button class="btn" id="abrirQuadro" style="width:100%;margin-bottom:14px">${IC.kanban} Abrir quadro Kanban</button>
+        <div class="cartao"><h3>Sequências automáticas no servidor</h3>
+          <div class="dica" style="margin-bottom:10px">O quadro funciona sem servidor (cada aba é uma coluna). Com o servidor, cada coluna pode ter uma <b>sequência automática</b>: quem entra na aba "Remarketing", por exemplo, recebe as mensagens sozinho, mesmo com o computador desligado.</div>
+          <label class="campo">Chave de acesso<input type="text" id="chave" placeholder="vf_…" autocomplete="off"></label>
+          <button class="btn" id="salvarChave">Conectar</button>
+        </div>`;
+      corpo.onclick = async (e) => {
+        if (e.target.closest('#abrirQuadro')) return abrirKanban();
+        if (!e.target.closest('#salvarChave')) return;
+        const chave = corpo.querySelector('#chave').value.trim();
+        if (!chave) return avisar('Cole a chave de acesso.', 'erro');
+        await VF.gravar('servidor', { chave });
+        servidor = { chave };
+        try {
+          await api('GET', '/eu');
+          avisar('Servidor conectado! Agora conecte o WhatsApp no servidor.', 'ok');
+          await carregarServidor();
+          desenharLateral();
+        } catch (err) {
+          await VF.gravar('servidor', { chave: '' });
+          servidor = { chave: '' };
+          avisar(err.message, 'erro');
+        }
+      };
+      return;
+    }
+    corpo.innerHTML = `<div class="lat-titulo"><h2>Kanban automático</h2></div><div class="dica">Carregando…</div>`;
+    let eu;
+    try {
+      eu = await api('GET', '/eu');
+    } catch (e) {
+      corpo.innerHTML = `<div class="lat-titulo"><h2>Kanban automático</h2></div><div class="alerta">${esc(e.message)}</div>
+        <button class="btn sec peq" id="tentar">Tentar de novo</button> <button class="link" id="trocarChave">Trocar a chave de acesso</button>`;
+      corpo.onclick = async (ev) => {
+        if (ev.target.closest('#tentar')) desenharLateral();
+        if (ev.target.closest('#trocarChave') && confirm('Desligar este computador do servidor? (As sequências continuam rodando no servidor.)')) {
+          await VF.gravar('servidor', { chave: '' });
+          servidor = { chave: '' };
+          desenharLateral();
+        }
+      };
+      return;
+    }
+    const z = eu.whatsapp;
+    const c = eu.config;
+    const dias = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+    const comAuto = colunasKanban().filter((a) => automacoes[a.id]);
+    const conta = (abaId, est) => kanban.inscricoes.filter((i) => i.abaId === abaId && i.estado === est).length;
+    corpo.innerHTML = `
+      <div class="lat-titulo"><h2>Kanban automático</h2></div>
+      <button class="btn" id="abrirQuadro" style="width:100%;margin-bottom:14px">${IC.kanban} Abrir quadro Kanban</button>
+      <div class="cartao"><h3>WhatsApp no servidor</h3>
+        ${
+          z.estado === 'open'
+            ? `<div class="ok-box">✅ Conectado: <b>${esc(VF.numeroDoId(z.numero + '@c.us') || z.numero)}</b><br>Hoje: ${eu.enviosHoje}/${c.limiteDia} mensagens automáticas · ${eu.dentroDoHorario ? 'dentro do horário' : 'fora do horário (espera abrir)'}</div>
+               <button class="link" id="desconectarZap" style="color:var(--vermelho)">Desconectar o WhatsApp do servidor</button>`
+            : `<div class="dica" style="margin-bottom:8px">Conecte o mesmo número deste WhatsApp. Ele vira mais um "aparelho conectado" (como o WhatsApp Web) e é por ele que o servidor envia as sequências.</div>
+               <ol class="passos-lista"><li>Clique em <b>Mostrar QR code</b></li><li>No celular: WhatsApp › <b>⋮</b> (Android) ou <b>Configurações</b> (iPhone) › <b>Aparelhos conectados</b> › <b>Conectar um aparelho</b></li><li>Aponte a câmera para o QR code abaixo</li></ol>
+               <button class="btn" id="mostrarQR">Mostrar QR code</button>
+               <div id="qrArea" class="qr-area"></div>`
+        }
+      </div>
+      <div class="cartao"><h3>Colunas com sequência automática</h3>
+        ${
+          comAuto.length
+            ? comAuto
+                .map((a) => {
+                  const au = automacoes[a.id];
+                  return `<div class="contato-linha clicavel" data-editar-auto="${esc(a.id)}"><span class="bolinha" style="background:${esc(a.cor)}"></span><div class="cresce"><div><b>${esc(a.nome)}</b> · ${au.passos.length} mensagem(ns)${au.ativa ? '' : ' · <span style="color:var(--amarelo)">desligada</span>'}</div>
+                    <small>⏳ ${conta(a.id, 'ativo')} na sequência · 💬 ${conta(a.id, 'respondeu')} responderam · ✅ ${conta(a.id, 'concluido')} concluíram</small></div></div>`;
+                })
+                .join('')
+            : '<div class="dica">Nenhuma ainda. No quadro, clique no ⚡ de uma coluna (ou em Abas › editar aba) para criar.</div>'
+        }
+      </div>
+      <div class="cartao"><h3>Ritmo do servidor</h3>
+        <div class="duas"><label class="campo">Das<input type="time" id="sHoraInicio" value="${esc(c.horaInicio)}"></label><label class="campo">Até<input type="time" id="sHoraFim" value="${esc(c.horaFim)}"></label></div>
+        <div class="chips">${dias.map((d, i) => `<label class="check" style="padding:0 6px 0 0"><input type="checkbox" name="sDia" value="${i}" ${c.dias.includes(i) ? 'checked' : ''}>${d}</label>`).join('')}</div>
+        <div class="duas"><label class="campo">Intervalo mín. (seg)<input type="number" id="sIntMin" min="20" value="${c.intervaloMin}"></label><label class="campo">Intervalo máx. (seg)<input type="number" id="sIntMax" min="20" value="${c.intervaloMax}"></label></div>
+        <label class="campo">Limite de mensagens automáticas por dia<input type="number" id="sLimite" min="1" max="500" value="${c.limiteDia}"></label>
+        <label class="check"><input type="checkbox" id="sDigitando" ${c.simularDigitacao ? 'checked' : ''}> Mostrar "digitando…" / "gravando áudio…" antes</label>
+        <button class="btn sec peq" id="salvarRitmo">Salvar ritmo</button>
+        <div class="dica" style="margin-top:6px">Esse ritmo é só das sequências automáticas (o envio em massa tem o dele em Configurações).</div>
+      </div>
+      <button class="link" id="trocarChave">Desligar este computador do servidor</button>`;
+    async function mostrarQR(dados) {
+      const area = corpo.querySelector('#qrArea');
+      if (!area) return;
+      if (dados.whatsapp.estado === 'open') {
+        clearInterval(timerQR);
+        avisar('✅ WhatsApp conectado no servidor!', 'ok');
+        sincronizarKanban();
+        return desenharLateral();
+      }
+      area.innerHTML = dados.codigo
+        ? `<div class="codigo-par">${esc(dados.codigo)}</div><div class="dica">No celular, em "Conectar um aparelho", toque em <b>Conectar com número de telefone</b> e digite esse código.</div>`
+        : dados.whatsapp.qr
+          ? `<img src="${esc(dados.whatsapp.qr)}" alt="QR code"><div class="dica">O código muda sozinho a cada ~40 segundos.</div>`
+          : '<div class="dica">Gerando o QR code…</div>';
+    }
+    corpo.onclick = async (e) => {
+      if (e.target.closest('#abrirQuadro')) return abrirKanban();
+      const ed = e.target.closest('[data-editar-auto]');
+      if (ed) return abrirLateral('abas', 'editar:' + ed.dataset.editarAuto + ':auto');
+      if (e.target.closest('#mostrarQR')) {
+        e.target.closest('#mostrarQR').disabled = true;
+        try {
+          mostrarQR(await api('POST', '/whatsapp/conectar', {}));
+          timerQR = setInterval(async () => {
+            if (secaoAtual !== 'kanban') return clearInterval(timerQR);
+            try {
+              mostrarQR(await api('GET', '/eu'));
+            } catch (err) { /* tenta no próximo */ }
+          }, 3000);
+        } catch (err) {
+          avisar(err.message, 'erro');
+          e.target.closest('#mostrarQR').disabled = false;
+        }
+      }
+      if (e.target.closest('#desconectarZap') && confirm('Desconectar o WhatsApp do servidor?\n\nAs sequências automáticas param de sair até você conectar de novo.')) {
+        await api('POST', '/whatsapp/desconectar').catch((err) => avisar(err.message, 'erro'));
+        desenharLateral();
+      }
+      if (e.target.closest('#salvarRitmo')) {
+        const v = (id) => corpo.querySelector(id).value;
+        const cfgLocal = await VF.config();
+        try {
+          await api('PUT', '/config', {
+            horaInicio: v('#sHoraInicio'), horaFim: v('#sHoraFim'),
+            dias: [...corpo.querySelectorAll('[name=sDia]:checked')].map((x) => Number(x.value)),
+            intervaloMin: Number(v('#sIntMin')), intervaloMax: Number(v('#sIntMax')), limiteDia: Number(v('#sLimite')),
+            simularDigitacao: corpo.querySelector('#sDigitando').checked,
+            nomeVendedor: cfgLocal.nomeVendedor, palavrasSair: cfgLocal.palavrasSair,
+          });
+          avisar('Ritmo do servidor salvo.', 'ok');
+          desenharLateral();
+        } catch (err) {
+          avisar(err.message, 'erro');
+        }
+      }
+      if (e.target.closest('#trocarChave') && confirm('Desligar este computador do servidor?\n\nAs sequências continuam rodando no servidor. Para voltar, cole a chave de novo.')) {
+        await VF.gravar('servidor', { chave: '' });
+        servidor = { chave: '' };
+        desenharLateral();
+      }
+    };
+  };
 
   // =====================================================================
   // TELA: Não perturbe
@@ -2136,7 +2863,7 @@
   ];
   function parteDaChave(k) {
     if (k === 'respostas' || k === 'scripts' || k === 'categorias') return 'respostas';
-    if (k === 'abas') return 'abas';
+    if (k === 'abas' || k === 'automacoes') return 'abas';
     if (k === 'nomes' || k === 'naoPerturbe' || k.startsWith('nota:')) return 'contatos';
     if (k === 'campanhas' || k.startsWith('campanha:')) return 'campanhas';
     if (k === 'config') return 'config';
@@ -2789,6 +3516,9 @@
     if (chaves.some((k) => k === 'campanhas' || k.startsWith('campanha:'))) campanhasMudaram();
     if (mud.nomes) nomes = mud.nomes.newValue || {};
     if (mud.nomes || mud.abas) setTimeout(atualizarCabecalho, 50);
+    if (mud.servidor) servidor = mud.servidor.newValue || { chave: '' };
+    if (mud.automacoes) automacoes = mud.automacoes.newValue || {};
+    if (mud.abas) avisarMudancasAbas(mud.abas.oldValue, mud.abas.newValue);
     if (mud.abas || mud.respostas || mud.scripts || mud.categorias) {
       await recarregarDados();
       if (mud.abas && abaSelecionada !== 'todas') {
@@ -2810,6 +3540,7 @@
       (secaoAtual === 'envio' && (mexeuCampanha || mud.motorStatus)) ||
       (secaoAtual === 'naoperturbe' && mud.naoPerturbe) ||
       (secaoAtual === 'contato' && (mud.abas || mud.nomes));
+    if (kanbanAberto && !arrastandoCard && (mud.abas || mud.nomes || mud.automacoes)) setTimeout(() => kanbanAberto && !arrastandoCard && desenharKanban(), 150);
     if (relevante && !telaComFormulario()) {
       clearTimeout(redesenho);
       redesenho = setTimeout(() => {
@@ -2820,6 +3551,9 @@
   });
 
   recarregarDados();
+  ligarEventosKanban();
+  carregarServidor();
+  setInterval(sincronizarKanban, 60000);
   VF.ler('motorStatus', null).then((s) => s && ((statusAtual = s), atualizarStatus()));
   setInterval(passoDoMotor, 15000);
   setTimeout(passoDoMotor, 5000);
