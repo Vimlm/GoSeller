@@ -2863,6 +2863,8 @@
       <div class="bk-lista">${PARTES_BACKUP.map(([v, t]) => `<label class="check"><input type="checkbox" name="bk" value="${v}" checked> ${t}</label>`).join('')}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sec peq" id="baixar">Baixar backup</button>
         <label class="btn sec peq" style="cursor:pointer">Restaurar backup<input type="file" id="restaurar" accept=".json" class="oculto"></label></div>
+      <div class="dica" style="margin-top:10px">Veio do <b>WaSeller</b>? Baixe o backup lá (exportar) e escolha o arquivo aqui — o GoSeller importa sozinho as respostas, abas, nomes e anotações.</div>
+      <div style="margin-top:4px"><label class="btn sec peq" style="cursor:pointer">Importar backup do WaSeller<input type="file" id="importarWa" accept=".json" class="oculto"></label></div>
       <div id="bkRestaurar"></div>
       <div class="secao-t">Planilha de contatos (CSV)</div>
       <div class="dica" style="margin-bottom:8px">Escolha etiquetas e/ou abas e baixe nome + telefone dos contatos. Abre no Excel e no Google Planilhas.</div>
@@ -2914,36 +2916,59 @@
       baixarArquivo(JSON.stringify({ app: 'goseller', versao: 2, em: Date.now(), partes: escolhidas, dados }), `goseller-backup-${VF.hoje()}.json`, 'application/json');
       avisar('Backup baixado (pasta Downloads).', 'ok');
     };
+    // Mostra a confirmação "o que restaurar" para um backup já no formato do GoSeller.
+    function mostrarRestauracao(j, nomeArquivo, aviso) {
+      const caixa = q('#bkRestaurar');
+      const presentes = PARTES_BACKUP.filter(([v]) => Object.keys(j.dados).some((k) => parteDaChave(k) === v));
+      if (!presentes.length) throw new Error('O backup está vazio.');
+      caixa.innerHTML = `<div class="cartao" style="margin-top:10px"><b>O que restaurar de "${esc(nomeArquivo)}"?</b>
+        ${aviso ? `<div class="dica" style="margin:4px 0 6px">${esc(aviso)}</div>` : ''}
+        <div class="dica" style="margin:4px 0 6px">O que você marcar SUBSTITUI o que está neste computador. O resto fica como está.</div>
+        ${presentes.map(([v, t]) => `<label class="check"><input type="checkbox" name="rs" value="${v}" checked> ${t}</label>`).join('')}
+        <div style="display:flex;gap:8px;margin-top:8px"><button class="btn peq" id="rsOk">Restaurar</button><button class="btn sec peq" id="rsCancelar">Cancelar</button></div></div>`;
+      q('#rsCancelar').onclick = () => (caixa.innerHTML = '');
+      q('#rsOk').onclick = async () => {
+        const sel = [...caixa.querySelectorAll('input[name=rs]:checked')].map((x) => x.value);
+        if (!sel.length) return avisar('Marque pelo menos uma parte.', 'erro');
+        const atual = await chrome.storage.local.get(null);
+        await chrome.storage.local.remove(Object.keys(atual).filter((k) => sel.includes(parteDaChave(k))));
+        const novo = {};
+        Object.keys(j.dados).forEach((k) => (sel.includes(parteDaChave(k)) || k.startsWith('midia:')) && (novo[k] = j.dados[k]));
+        await chrome.storage.local.set(novo);
+        await recarregarDados();
+        VF.limparMidiasOrfas();
+        avisar('Backup restaurado.', 'ok');
+        desenharLateral();
+      };
+    }
+
     q('#restaurar').onchange = async (e) => {
       const f = e.target.files[0];
       e.target.value = '';
       if (!f) return;
-      const caixa = q('#bkRestaurar');
       try {
         const j = JSON.parse(await f.text());
         if (!['goseller', 'vendaflow'].includes(j.app) || !j.dados) throw new Error('Este arquivo não é um backup do GoSeller.');
-        const presentes = PARTES_BACKUP.filter(([v]) => Object.keys(j.dados).some((k) => parteDaChave(k) === v));
-        if (!presentes.length) throw new Error('O backup está vazio.');
-        caixa.innerHTML = `<div class="cartao" style="margin-top:10px"><b>O que restaurar de "${esc(f.name)}"?</b>
-          <div class="dica" style="margin:4px 0 6px">O que você marcar SUBSTITUI o que está neste computador. O resto fica como está.</div>
-          ${presentes.map(([v, t]) => `<label class="check"><input type="checkbox" name="rs" value="${v}" checked> ${t}</label>`).join('')}
-          <div style="display:flex;gap:8px;margin-top:8px"><button class="btn peq" id="rsOk">Restaurar</button><button class="btn sec peq" id="rsCancelar">Cancelar</button></div></div>`;
-        q('#rsCancelar').onclick = () => (caixa.innerHTML = '');
-        q('#rsOk').onclick = async () => {
-          const sel = [...caixa.querySelectorAll('input[name=rs]:checked')].map((x) => x.value);
-          if (!sel.length) return avisar('Marque pelo menos uma parte.', 'erro');
-          const atual = await chrome.storage.local.get(null);
-          await chrome.storage.local.remove(Object.keys(atual).filter((k) => sel.includes(parteDaChave(k))));
-          const novo = {};
-          Object.keys(j.dados).forEach((k) => (sel.includes(parteDaChave(k)) || k.startsWith('midia:')) && (novo[k] = j.dados[k]));
-          await chrome.storage.local.set(novo);
-          await recarregarDados();
-          VF.limparMidiasOrfas();
-          avisar('Backup restaurado.', 'ok');
-          desenharLateral();
-        };
+        mostrarRestauracao(j, f.name);
       } catch (er) {
         avisar(er.message, 'erro');
+      }
+    };
+
+    q('#importarWa').onchange = async (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      avisar('Lendo o backup do WaSeller…', 'info', 4000);
+      try {
+        const j = JSON.parse(await f.text());
+        if (!WaSeller.ehBackup(j)) throw new Error('Este arquivo não parece um backup do WaSeller. Exporte o backup no WaSeller e tente de novo.');
+        const conv = await WaSeller.converter(j);
+        const r = conv.resumo;
+        mostrarRestauracao(conv, f.name,
+          `Do WaSeller: ${r.respostas} respostas (${r.midias} com áudio/vídeo/imagem), ${r.abas} abas com ${r.leads} leads, ${r.nomes} nomes e ${r.notas} anotações.`);
+      } catch (er) {
+        avisar('Não consegui importar: ' + er.message, 'erro', 6000);
       }
     };
     const selCSV = seletorMulti(
