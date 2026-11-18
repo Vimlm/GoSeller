@@ -5,7 +5,7 @@ Cada vendedor tem o próprio ambiente: tudo fica no `chrome.storage.local` do co
 
 ## Arquivos
 - `manifest.json`: Manifest V3
-- `lib/wppconnect-wa.js`: biblioteca WA-JS 4.7.2 (Apache-2.0, `lib/LICENSE-wa-js.txt`) que dá acesso às funções do WhatsApp Web
+- `lib/wppconnect-wa.js`: biblioteca WA-JS 4.8.2 (Apache-2.0, `lib/LICENSE-wa-js.txt`) que dá acesso às funções do WhatsApp Web
 - `src/config-wpp.js`: desliga o Google Analytics e o "powered by" da WA-JS (roda antes dela)
 - `src/pagina.js`: mundo MAIN; envia mensagens, etiquetas, filtro da lista e eventos (mensagem recebida, conversa aberta)
 - `src/conteudo.js`: barra no topo (abas, respostas, status), atalho `/`, motor do envio em massa e detecção de respostas e descadastro
