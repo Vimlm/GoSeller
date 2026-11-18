@@ -1,4 +1,4 @@
-# VendaFlow (nome provisório)
+# GoSeller (ex-VendaFlow)
 
 Extensão do Chrome para o WhatsApp Web (Business): respostas rápidas, abas de leads e envio em massa com ritmo lento.
 Cada vendedor tem o próprio ambiente: tudo fica no `chrome.storage.local` do computador dele.

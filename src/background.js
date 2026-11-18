@@ -59,7 +59,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg && msg.tipo === 'cutucar') cutucar();
 });
 
-// Servidor do VendaFlow (Kanban e sequências automáticas). As chamadas saem daqui
+// Servidor do GoSeller (Kanban e sequências automáticas). As chamadas saem daqui
 // (e não da página do WhatsApp) para não esbarrar no bloqueio de CORS.
 const SERVIDOR_PADRAO = 'https://agents.coolmeia.tech/vendaflow';
 async function chamarApi({ metodo, caminho, corpo }) {
@@ -75,7 +75,7 @@ async function chamarApi({ metodo, caminho, corpo }) {
     if (!r.ok) return { erro: r.status === 401 ? 'Chave de acesso inválida' : j.erro || 'Erro ' + r.status };
     return { dados: j };
   } catch (e) {
-    return { erro: 'Sem conexão com o servidor do VendaFlow' };
+    return { erro: 'Sem conexão com o servidor do GoSeller' };
   }
 }
 chrome.runtime.onMessage.addListener((msg, _remetente, responder) => {

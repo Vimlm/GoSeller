@@ -1,7 +1,7 @@
-// VendaFlow dentro do WhatsApp Web: barra de abas, trilho de ícones, painel lateral e motor do envio em massa.
+// GoSeller dentro do WhatsApp Web: barra de abas, trilho de ícones, painel lateral e motor do envio em massa.
 (() => {
   if (window.top !== window) return;
-  const CANAL = 'vendaflow';
+  const CANAL = 'goseller';
   const ORIGEM = location.origin;
   const MEU_TOKEN = VF.novoId(); // identifica esta aba (evita 2 abas enviando ao mesmo tempo)
   const esc = VF.esc;
@@ -46,7 +46,7 @@
       atualizarCabecalho();
       encaixarCabecalho();
     } else if (d.evento === 'mensagem') {
-      tratarMensagemRecebida(d).catch((e) => console.warn('[VendaFlow]', e));
+      tratarMensagemRecebida(d).catch((e) => console.warn('[GoSeller]', e));
     }
   });
 
@@ -228,7 +228,7 @@
 
   raiz.innerHTML = `
     <header class="topo">
-      <button class="logo" data-abrir="respostas" title="VendaFlow">${IC.raio}</button>
+      <button class="logo" data-abrir="respostas" title="GoSeller">${IC.raio}</button>
       <div class="pilulas" id="pilulas"></div>
       <button class="icone-btn" id="novaAba" title="Criar nova aba">${IC.pastaMais}</button>
       <button class="icone-btn" data-abrir="abas" title="Organizar abas">${IC.lista}</button>
@@ -281,7 +281,7 @@
       raiz.adoptedStyleSheets = [folha];
       raizFlut.adoptedStyleSheets = [folha];
     })
-    .catch((e) => console.warn('[VendaFlow] CSS', e));
+    .catch((e) => console.warn('[GoSeller] CSS', e));
 
   // Tema claro/escuro igual ao do WhatsApp
   function conferirTema() {
@@ -2911,7 +2911,7 @@
       Object.keys(tudo).forEach((k) => escolhidas.includes(parteDaChave(k)) && (dados[k] = tudo[k]));
       // Junta só os arquivos (áudio, vídeo, imagem) usados pelo que foi escolhido
       for (const [, id] of JSON.stringify(dados).matchAll(/"midiaId":"([^"]+)"/g)) if (tudo['midia:' + id]) dados['midia:' + id] = tudo['midia:' + id];
-      baixarArquivo(JSON.stringify({ app: 'vendaflow', versao: 2, em: Date.now(), partes: escolhidas, dados }), `vendaflow-backup-${VF.hoje()}.json`, 'application/json');
+      baixarArquivo(JSON.stringify({ app: 'goseller', versao: 2, em: Date.now(), partes: escolhidas, dados }), `goseller-backup-${VF.hoje()}.json`, 'application/json');
       avisar('Backup baixado (pasta Downloads).', 'ok');
     };
     q('#restaurar').onchange = async (e) => {
@@ -2921,7 +2921,7 @@
       const caixa = q('#bkRestaurar');
       try {
         const j = JSON.parse(await f.text());
-        if (j.app !== 'vendaflow' || !j.dados) throw new Error('Este arquivo não é um backup do VendaFlow.');
+        if (!['goseller', 'vendaflow'].includes(j.app) || !j.dados) throw new Error('Este arquivo não é um backup do GoSeller.');
         const presentes = PARTES_BACKUP.filter(([v]) => Object.keys(j.dados).some((k) => parteDaChave(k) === v));
         if (!presentes.length) throw new Error('O backup está vazio.');
         caixa.innerHTML = `<div class="cartao" style="margin-top:10px"><b>O que restaurar de "${esc(f.name)}"?</b>
@@ -2985,7 +2985,7 @@
         const cel = (x) => `"${String(x || '').replace(/"/g, '""')}"`;
         const linhas = [['Nome', 'Telefone', 'Grupos'].map(cel).join(';')];
         contatos.forEach((c, numero) => linhas.push([c.nome, numero, [...new Set(c.grupos)].join(', ')].map(cel).join(';')));
-        baixarArquivo('﻿' + linhas.join('\r\n'), `vendaflow-contatos-${VF.hoje()}.csv`, 'text/csv;charset=utf-8');
+        baixarArquivo('﻿' + linhas.join('\r\n'), `goseller-contatos-${VF.hoje()}.csv`, 'text/csv;charset=utf-8');
         avisar(`Planilha com ${contatos.size} contatos baixada (pasta Downloads).`, 'ok');
       } catch (er) {
         avisar('Não consegui montar a planilha: ' + er.message, 'erro');
@@ -3081,7 +3081,7 @@
   // Só confere de vez em quando se ainda está lá (sem medir a tela, que é o que pesa).
   const raioWA = document.createElement('div');
   raioWA.id = 'vf-raio';
-  raioWA.title = 'Respostas rápidas (VendaFlow)';
+  raioWA.title = 'Respostas rápidas (GoSeller)';
   raioWA.setAttribute('role', 'button');
   raioWA.innerHTML = IC.raio;
   Object.assign(raioWA.style, {
@@ -3118,12 +3118,12 @@
   const SVG_PASTA = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M12 10.5v5M9.5 13h5"/></svg>';
   const nomeWABtn = document.createElement('span');
   nomeWABtn.id = 'vf-nome-wa';
-  nomeWABtn.title = 'Mudar o nome deste contato (VendaFlow)';
+  nomeWABtn.title = 'Mudar o nome deste contato (GoSeller)';
   nomeWABtn.style.cssText = 'display:inline-flex;align-items:center;justify-content:center;gap:0;margin:0 4px;width:34px;height:34px;padding:0;border-radius:50%;box-sizing:border-box;align-self:center;cursor:pointer;color:#8696a0;font-size:13px;font-weight:500;vertical-align:middle;flex:none;white-space:nowrap;';
   nomeWABtn.innerHTML = SVG_LAPIS + '<span></span>';
   const abasWABtn = document.createElement('span');
   abasWABtn.id = 'vf-abas-wa';
-  abasWABtn.title = 'Colocar este contato em abas (VendaFlow)';
+  abasWABtn.title = 'Colocar este contato em abas (GoSeller)';
   // Só ícone (sem texto) para não espremer o nome do contato no cabeçalho
   abasWABtn.style.cssText = 'position:relative;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;margin-right:6px;border-radius:50%;cursor:pointer;color:inherit;flex:none;box-sizing:border-box;';
   abasWABtn.innerHTML = SVG_PASTA.replace(/18/g, '22') + '<span style="position:absolute;right:2px;bottom:4px;display:flex;gap:1px"></span>';
@@ -3142,13 +3142,13 @@
     const meu = ids ? nomeDe(ids, '') : '';
     nomeWABtn.lastChild.textContent = '';
     nomeWABtn.style.color = meu ? '#21c063' : '#8696a0';
-    nomeWABtn.title = meu ? `Nome no VendaFlow: ${meu} (clique para mudar)` : 'Mudar o nome deste contato (VendaFlow)';
+    nomeWABtn.title = meu ? `Nome no GoSeller: ${meu} (clique para mudar)` : 'Mudar o nome deste contato (GoSeller)';
     const minhas = ids ? abas.filter((a) => a.tipo !== 'etiqueta' && abaTem(a, ids)) : [];
     abasWABtn.lastChild.innerHTML = minhas
       .slice(0, 3)
       .map((a) => `<span style="display:block;width:9px;height:9px;border-radius:50%;background:${esc(a.cor)};box-shadow:0 0 0 2px #111b21"></span>`)
       .join('');
-    abasWABtn.title = minhas.length ? `Abas: ${minhas.map((a) => a.nome).join(', ')} (clique para mudar)` : 'Colocar este contato em abas (VendaFlow)';
+    abasWABtn.title = minhas.length ? `Abas: ${minhas.map((a) => a.nome).join(', ')} (clique para mudar)` : 'Colocar este contato em abas (GoSeller)';
   }
   const abrirNomeCab = async () => {
     const ids = await idsDoCabecalho();
@@ -3491,7 +3491,7 @@
       }
       await processarContato(campanha, i, cfg, motor, base);
     } catch (e) {
-      console.warn('[VendaFlow] motor:', e);
+      console.warn('[GoSeller] motor:', e);
     } finally {
       ocupado = false;
     }

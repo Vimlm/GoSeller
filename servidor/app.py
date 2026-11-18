@@ -1,4 +1,4 @@
-# VendaFlow — servidor do Kanban com remarketing automático.
+# GoSeller — servidor do Kanban com remarketing automático.
 #
 # A extensão (no WhatsApp Web) avisa quando um lead entra/sai de uma aba. Se a aba tem
 # automação, o servidor envia a sequência de mensagens pela Evolution API (o WhatsApp do
@@ -754,5 +754,5 @@ class Handler(BaseHTTPRequestHandler):
 if __name__ == '__main__':
     threading.Thread(target=laco_motor, daemon=True).start()
     threading.Thread(target=laco_conexoes, daemon=True).start()
-    log('VendaFlow servidor no ar na porta 8080')
+    log('GoSeller servidor no ar na porta 8080')
     ThreadingHTTPServer(('0.0.0.0', 8080), Handler).serve_forever()

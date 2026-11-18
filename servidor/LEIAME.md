@@ -1,4 +1,4 @@
-# Servidor do VendaFlow (Kanban + sequências automáticas)
+# Servidor do GoSeller (Kanban + sequências automáticas)
 
 Roda na VPS em `/opt/vendaflow` (docker compose, rede `coolify`):
 

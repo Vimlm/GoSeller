@@ -1,4 +1,4 @@
-/* Abre espaço para a interface do VendaFlow: barra no topo (52px), trilho à esquerda (60px)
+/* Abre espaço para a interface do GoSeller: barra no topo (52px), trilho à esquerda (60px)
    e painel à direita (380px, só quando aberto). */
 html.vf-ativo #app {
   position: fixed !important;

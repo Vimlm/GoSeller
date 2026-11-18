@@ -1,7 +1,7 @@
 // Roda no "mundo" da página do WhatsApp Web (acesso ao objeto WPP da biblioteca WA-JS).
 // Recebe pedidos da extensão por window.postMessage e devolve respostas simples (sem objetos do WhatsApp).
 (() => {
-  const CANAL = 'vendaflow';
+  const CANAL = 'goseller';
   const ORIGEM = location.origin;
   const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
 
