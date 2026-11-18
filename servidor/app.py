@@ -28,6 +28,7 @@ ADMIN_KEY = os.environ.get('ADMIN_KEY', '')
 WEBHOOK_SECRET = os.environ.get('WEBHOOK_SECRET', '')
 MEU_URL = os.environ.get('MEU_URL', 'http://vendaflow-api:8080')  # como a Evolution chega aqui
 PREFIXO = os.environ.get('PREFIXO', '/vendaflow')
+EMAIL_CONTATO = os.environ.get('EMAIL_CONTATO', 'contato@goseller.app.br')
 DADOS = os.environ.get('DADOS', '/dados')
 FUSO = timezone(timedelta(hours=-3))  # Brasília (sem horário de verão)
 MAX_MIDIA = 16 * 1024 * 1024
@@ -539,6 +540,27 @@ def info_conta(conta):
     }
 
 
+PAGINA_PRIVACIDADE = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>GoSeller – Política de Privacidade</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:760px;margin:0 auto;padding:24px 16px;color:#1f2937;background:#fff}h1{font-size:26px}h2{font-size:19px;margin-top:28px}</style></head><body>
+<h1>Política de Privacidade – GoSeller</h1>
+<p>Última atualização: 18 de novembro de 2026.</p>
+<p>O GoSeller é uma extensão para o Google Chrome que ajuda equipes de vendas a organizar o atendimento no WhatsApp Web: respostas rápidas, abas de contatos, campanhas, quadro Kanban e mensagens automáticas.</p>
+<h2>1. Dados guardados no seu navegador</h2>
+<p>Respostas rápidas, abas, anotações, nomes de contatos, campanhas e configurações ficam guardados <b>somente no seu computador</b> (armazenamento local do Chrome). Esses dados não são enviados a nós, exceto nos casos do item 2.</p>
+<h2>2. Dados enviados ao servidor do GoSeller</h2>
+<p>Somente se você ativar o <b>Kanban automático / mensagens automáticas</b> e informar sua chave de acesso, o GoSeller envia ao nosso servidor: o número de telefone e o nome dos contatos colocados nas colunas com sequência automática, as mensagens e arquivos dessas sequências e a etapa de cada contato. Para enviar essas mensagens, o seu número de WhatsApp é conectado ao servidor como "aparelho conectado" (lendo o QR code); o servidor recebe apenas os avisos necessários para saber se o contato respondeu.</p>
+<h2>3. Para que usamos</h2>
+<p>Exclusivamente para executar as funções que você configurou (enviar as mensagens programadas e mover os contatos de etapa). Não vendemos, não alugamos e não compartilhamos esses dados com terceiros, e não os usamos para publicidade.</p>
+<h2>4. Segurança e prazo</h2>
+<p>A comunicação com o servidor é criptografada (HTTPS). Os dados de uma conta são apagados em até 30 dias após o cancelamento ou mediante pedido.</p>
+<h2>5. Seus direitos (LGPD)</h2>
+<p>Você pode pedir acesso, correção ou exclusão dos seus dados a qualquer momento pelo contato abaixo. Desconectar o número e apagar a chave de acesso nas Configurações interrompe qualquer envio de dados ao servidor.</p>
+<h2>6. Contato</h2>
+<p>E-mail: <a href="mailto:""" + EMAIL_CONTATO + """">""" + EMAIL_CONTATO + """</a></p>
+</body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = 'HTTP/1.1'
 
@@ -553,6 +575,14 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Headers', 'Authorization, Content-Type')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
+        self.end_headers()
+        self.wfile.write(corpo)
+
+    def responder_html(self, status, texto):
+        corpo = texto.encode()
+        self.send_response(status)
+        self.send_header('Content-Type', 'text/html; charset=utf-8')
+        self.send_header('Content-Length', str(len(corpo)))
         self.end_headers()
         self.wfile.write(corpo)
 
@@ -592,6 +622,8 @@ class Handler(BaseHTTPRequestHandler):
         if caminho.startswith(PREFIXO):
             caminho = caminho[len(PREFIXO):] or '/'
         try:
+            if caminho in ('/privacidade', '/privacidade/') and metodo == 'GET':
+                return self.responder_html(200, PAGINA_PRIVACIDADE)
             if caminho in ('/', '/saude'):
                 return self.responder(200, {'ok': True, 'servico': 'vendaflow'})
             if caminho == '/webhook/evolution/' + WEBHOOK_SECRET and metodo == 'POST':
