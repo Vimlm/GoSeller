@@ -9,7 +9,7 @@ Legenda: [ ] a fazer · [~] em andamento · [x] feito · 👤 depende de você (
 ## Fase 0 — Padrões de desenvolvimento (a partir de 19/11/2026)
 
 - [x] **Código no GitHub**: https://github.com/Vimlm/GoSeller (privado).
-- [ ] **Commit a cada mudança** a partir de hoje: um commit por correção/funcionalidade, mensagem clara, `git push` em seguida. Versões marcadas com tag (`v0.8.3`, `v0.9.0`…).
+- [x] **Commit a cada mudança** a partir de hoje: um commit por correção/funcionalidade, mensagem clara. **Fluxo:** mudança → teste manual na cópia de teste (⟳ em `chrome://extensions` + F5 no WhatsApp) → `git push`. Versões marcadas com tag (`v0.8.3`, `v0.9.0`…).
 - [x] `.gitignore` (dist/, zips, .DS_Store, .env) — pacotes gerados não vão para o Git.
 - [x] **Todo código em inglês** (padrão definido em `CLAUDE.md`): nomes de variáveis/funções/arquivos, comentários e mensagens de commit. A conversa e o texto que o vendedor vê continuam em português.
 - [x] **Dados do programa ficam em português**: chaves salvas no navegador (`abas`, `nomes`, `respostas`…), formato do backup, rotas e tabelas do servidor. Não mudam — ninguém perde dados.
@@ -17,7 +17,7 @@ Legenda: [ ] a fazer · [~] em andamento · [x] feito · 👤 depende de você (
 
 ## Fase 1 — Pôr no ar para o time (prioridade máxima)
 
-- [ ] 👤 **Comprar `goseller.app.br`** no registro.br e apontar o DNS para a VPS (72.61.135.26).
+- [~] 👤 **Comprar `goseller.app.br`** no registro.br e apontar o DNS para a VPS (72.61.135.26). (19/11: comprado; registros A `api`, A raiz e CNAME `www` criados — aguardando propagar)
 - [ ] **Trocar os domínios antigos** (pouca coisa hoje):
   - `src/background.js` → `SERVIDOR_PADRAO` (`agents.coolmeia.tech/vendaflow` → `api.goseller.app.br`)
   - `manifest.json` → `host_permissions` (`agents.coolmeia.tech/*` → `*.goseller.app.br/*`)
