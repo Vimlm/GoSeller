@@ -91,6 +91,8 @@
       } else {
         let dataUrl = await VF.readMedia(e.midiaId);
         if (!dataUrl) throw new Error('Arquivo não encontrado: ' + (e.nomeArquivo || 'mídia'));
+        const cleaned = VoiceNote.cleanHeader(dataUrl);
+        if (cleaned !== dataUrl) await VF.write('midia:' + e.midiaId, (dataUrl = cleaned)); // fixes files saved by 0.8.4's converter
         const voiceNote = e.tipoMidia === 'audio' && !!e.ptt;
         if (voiceNote && !VoiceNote.isOggOpus(dataUrl)) {
           // MP3/M4A as a voice note can't be played by the receiver: convert once and keep the converted file

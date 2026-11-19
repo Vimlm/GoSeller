@@ -22,6 +22,7 @@
   const ok = (extra) => ({ id: wid('msg' + Math.random().toString(36).slice(2) + '@c.us'), ack: 1, sendMsgResult: Promise.resolve(), ...extra });
   const findChat = (id) => chats.find((c) => c.id._serialized === id);
 
+  const DATA_URL = /^data:([a-z]+\/[a-z0-9-+.]+(;[a-z0-9-.!#$%*+.{}|~`]+=[a-z0-9-.!#$%*+.{}()_|~`]+)*)?(;base64)?,([a-z0-9!$&',()*+;=\-._~:@\/?%\s<>]*?)$/i;
   window.WPP = {
     version: 'fake',
     isFullReady: true,
@@ -38,7 +39,12 @@
         (listeners['chat.active_chat'] || []).forEach((fn) => fn(active));
       },
       sendTextMessage: async (id, text) => (window.__sent.push({ id, type: 'text', text }), ok()),
-      sendFileMessage: async (id, data, op) => (window.__sent.push({ id, type: 'file', op }), ok()),
+      sendFileMessage: async (id, data, op) => {
+        // Same data URL check as the real WA-JS (parse-data-url) — it throws 'invalid_data_url'
+        if (typeof data === 'string' && !DATA_URL.test(data.trim())) throw 'invalid_data_url';
+        window.__sent.push({ id, type: 'file', op, head: String(data).slice(0, 60) });
+        return ok();
+      },
       setInputText: async (text) => (window.__inputText = text),
       setChatList: async (type, ids) => (window.__chatList = { type, ids }),
       markIsComposing: async () => {},

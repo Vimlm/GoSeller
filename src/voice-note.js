@@ -135,8 +135,14 @@ const VoiceNote = (() => {
     const pcm = await decodeMono48k(dataUrlToBytes(dataUrl));
     const packets = await encodeOpus(pcm);
     if (!packets.length) throw new Error('Áudio vazio');
-    return { dataUrl: bytesToDataUrl(muxOgg(packets, pcm.length), 'audio/ogg; codecs=opus'), duration: pcm.length / RATE };
+    return { dataUrl: bytesToDataUrl(muxOgg(packets, pcm.length), 'audio/ogg;codecs=opus'), duration: pcm.length / RATE };
   }
 
-  return { isOggOpus, convert, MIME: 'audio/ogg; codecs=opus' };
+  // WA-JS rejects data URLs with spaces in the header ("data:audio/ogg; codecs=opus" → invalid_data_url)
+  const cleanHeader = (dataUrl) => {
+    const i = dataUrl.indexOf(',');
+    return i < 0 ? dataUrl : dataUrl.slice(0, i).replace(/\s+/g, '') + dataUrl.slice(i);
+  };
+
+  return { isOggOpus, convert, cleanHeader, MIME: 'audio/ogg; codecs=opus' };
 })();
