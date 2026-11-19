@@ -11,3 +11,7 @@ dist/
 
 # Python
 __pycache__/
+
+# Test dependencies
+node_modules/
+tests/fail-*.png

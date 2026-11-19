@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <title>WhatsApp (fake)</title>
+  <style>
+    body { margin: 0; font-family: system-ui, sans-serif; }
+    #app { position: fixed; inset: 0; display: flex; }
+    #side { width: 30%; border-right: 1px solid #ddd; }
+    #main { flex: 1; display: flex; flex-direction: column; }
+    #main header { height: 60px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-bottom: 1px solid #ddd; }
+    #main .msgs { flex: 1; }
+    #main footer { height: 62px; display: flex; align-items: center; gap: 8px; padding: 0 12px; border-top: 1px solid #ddd; }
+    #main footer [contenteditable] { flex: 1; border: 1px solid #ccc; padding: 8px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div id="side"></div>
+    <div id="main">
+      <header>
+        <div class="foto"></div>
+        <div class="titulo"><span dir="auto">Maria Silva</span></div>
+        <button aria-label="Pesquisar"><span data-icon="search"></span></button>
+      </header>
+      <div class="msgs"></div>
+      <footer>
+        <div class="campo"><div contenteditable="true" role="textbox" data-tab="10"></div></div>
+        <div><button aria-label="Mensagem de voz"><span data-icon="mic-outlined"></span></button></div>
+      </footer>
+    </div>
+  </div>
+  <!-- Page "world" (MAIN): -->
+  <script src="fake-wpp.js"></script>
+  <script src="../../src/page.js"></script>
+  <!-- Extension "world" (isolated): -->
+  <script src="chrome-shim.js"></script>
+  <script src="../../src/common.js"></script>
+  <script src="../../src/waseller.js"></script>
+  <script src="../../src/steps-editor.js"></script>
+  <script src="../../src/content.js"></script>
+</body>
+</html>

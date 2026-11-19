@@ -1,0 +1,11 @@
+{
+  "name": "goseller-tests",
+  "private": true,
+  "description": "Automated UI tests for the GoSeller extension (fake WhatsApp page + headless Chrome)",
+  "scripts": {
+    "test": "node run.js"
+  },
+  "devDependencies": {
+    "puppeteer-core": "23.10.4"
+  }
+}

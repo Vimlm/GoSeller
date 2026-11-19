@@ -12,6 +12,11 @@
 - Tag releases with the manifest version (`v0.8.3`).
 - Never commit `dist/`, zips, `.env` or other secrets.
 
+## Testing (double verification)
+- Every change: run `cd tests && npm test` (fake WhatsApp page + headless Chrome) and add/extend a spec in `tests/specs/` for the new behavior. Server changes: also run the server locally and hit the changed routes.
+- Then the owner tests manually in the unpacked copy (⟳ in chrome://extensions + F5 on WhatsApp) before `git push`. Give him a short step-by-step test script.
+- One change at a time; don't add UI/features that weren't asked for.
+
 ## Build
 - `./build.sh` — obfuscated zip for manual install (the owner runs it).
 - `./build-store.sh` — readable zip for the Chrome Web Store (no obfuscation allowed by the store).
