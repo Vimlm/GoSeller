@@ -2907,8 +2907,7 @@
       <div class="bk-lista">${BACKUP_PARTS.map(([v, t]) => `<label class="check"><input type="checkbox" name="bk" value="${v}" checked> ${t}</label>`).join('')}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"><button class="btn sec peq" id="baixar">Baixar backup</button>
         <label class="btn sec peq" style="cursor:pointer">Restaurar backup<input type="file" id="restaurar" accept=".json" class="oculto"></label></div>
-      <div class="dica" style="margin-top:10px">Veio do <b>WaSeller</b>? Baixe o backup lá (exportar) e escolha o arquivo aqui — o GoSeller importa sozinho as respostas, abas, nomes e anotações.</div>
-      <div style="margin-top:4px"><label class="btn sec peq" style="cursor:pointer">Importar backup do WaSeller<input type="file" id="importarWa" accept=".json" class="oculto"></label></div>
+      <div class="dica" style="margin-top:6px">Veio de outra extensão? Exporte o backup lá e escolha o arquivo em "Restaurar backup" — o GoSeller reconhece o formato e importa respostas, abas, nomes e anotações.</div>
       <div id="bkRestaurar"></div>
       <div class="secao-t">Planilha de contatos (CSV)</div>
       <div class="dica" style="margin-bottom:8px">Escolha etiquetas e/ou abas e baixe nome + telefone dos contatos. Abre no Excel e no Google Planilhas.</div>
@@ -2986,33 +2985,23 @@
       };
     }
 
+    // One restore button: detects GoSeller backups and other supported extensions' backups on its own
     q('#restaurar').onchange = async (e) => {
       const f = e.target.files[0];
       e.target.value = '';
       if (!f) return;
       try {
         const j = JSON.parse(await f.text());
-        if (!['goseller', 'vendaflow'].includes(j.app) || !j.dados) throw new Error('Este arquivo não é um backup do GoSeller.');
-        showRestore(j, f.name);
+        if (['goseller', 'vendaflow'].includes(j.app) && j.dados) return showRestore(j, f.name);
+        if (WaSeller.isBackup(j)) {
+          notify('Lendo o backup…', 'info', 4000);
+          const conv = await WaSeller.convert(j);
+          const r = conv.resumo;
+          return showRestore(conv, f.name, `Backup de outra extensão: ${r.respostas} respostas (${r.midias} com áudio/vídeo/imagem), ${r.abas} abas com ${r.leads} leads, ${r.nomes} nomes e ${r.notas} anotações.`);
+        }
+        throw new Error('Não reconheci este arquivo como backup. Use um backup baixado no GoSeller ou exportado pela outra extensão.');
       } catch (er) {
-        notify(er.message, 'erro');
-      }
-    };
-
-    q('#importarWa').onchange = async (e) => {
-      const f = e.target.files[0];
-      e.target.value = '';
-      if (!f) return;
-      notify('Lendo o backup do WaSeller…', 'info', 4000);
-      try {
-        const j = JSON.parse(await f.text());
-        if (!WaSeller.isBackup(j)) throw new Error('Este arquivo não parece um backup do WaSeller. Exporte o backup no WaSeller e tente de novo.');
-        const conv = await WaSeller.convert(j);
-        const r = conv.resumo;
-        showRestore(conv, f.name,
-          `Do WaSeller: ${r.respostas} respostas (${r.midias} com áudio/vídeo/imagem), ${r.abas} abas com ${r.leads} leads, ${r.nomes} nomes e ${r.notas} anotações.`);
-      } catch (er) {
-        notify('Não consegui importar: ' + er.message, 'erro', 6000);
+        notify(er instanceof SyntaxError ? 'O arquivo não é um backup válido (não é JSON).' : er.message, 'erro', 6000);
       }
     };
     const selCSV = multiSelector(

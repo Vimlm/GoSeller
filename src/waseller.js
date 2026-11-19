@@ -54,7 +54,7 @@ const WaSeller = (() => {
 
   async function decrypt(b64) {
     const raw = b64ToBytes(b64);
-    if (String.fromCharCode(...raw.slice(0, 8)) !== 'Salted__') throw new Error('Campo fora do formato do WaSeller.');
+    if (String.fromCharCode(...raw.slice(0, 8)) !== 'Salted__') throw new Error('Campo do backup em formato inesperado.');
     const salt = raw.slice(8, 16), ct = raw.slice(16);
     const pass = new TextEncoder().encode(CRIPT_KEY);
     const { key, iv } = derive(pass, salt, 32, 16);
