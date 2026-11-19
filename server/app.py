@@ -32,6 +32,9 @@ CONTACT_EMAIL = os.environ.get('EMAIL_CONTATO', 'contato@goseller.app.br')
 DATA_DIR = os.environ.get('DADOS', '/dados')
 TZ = timezone(timedelta(hours=-3))  # Brasília (no daylight saving time)
 MAX_MEDIA = 16 * 1024 * 1024
+MAX_REPORT_FILE = 30 * 1024 * 1024  # print/video attached to a problem report
+MAX_REPORT_JSON = 200 * 1024
+REPORTS_PER_HOUR = 10  # per IP, the report route is public
 
 DEFAULT_CONFIG = {
     'nomeVendedor': '',
@@ -46,6 +49,7 @@ DEFAULT_CONFIG = {
 }
 
 os.makedirs(os.path.join(DATA_DIR, 'midias'), exist_ok=True)
+os.makedirs(os.path.join(DATA_DIR, 'relatos'), exist_ok=True)
 db = sqlite3.connect(os.path.join(DATA_DIR, 'vendaflow.db'), check_same_thread=False, isolation_level=None)
 db.row_factory = sqlite3.Row
 db.execute('PRAGMA journal_mode=WAL')
@@ -70,6 +74,10 @@ CREATE INDEX IF NOT EXISTS ix_insc_fila ON inscricoes (conta, estado, proximo_em
 CREATE TABLE IF NOT EXISTS envios_dia (conta TEXT, data TEXT, n INTEGER, PRIMARY KEY (conta, data));
 CREATE TABLE IF NOT EXISTS naoperturbe (conta TEXT, numero TEXT, texto TEXT, em INTEGER, PRIMARY KEY (conta, numero));
 CREATE TABLE IF NOT EXISTS midias (conta TEXT, id TEXT, mime TEXT, nome TEXT, tamanho INTEGER, PRIMARY KEY (conta, id));
+CREATE TABLE IF NOT EXISTS relatos (
+  id TEXT PRIMARY KEY, conta TEXT DEFAULT '', vendedor TEXT DEFAULT '', descricao TEXT DEFAULT '',
+  info TEXT DEFAULT '{}', erros TEXT DEFAULT '[]', anexo_nome TEXT DEFAULT '', anexo_mime TEXT DEFAULT '',
+  anexo_tamanho INTEGER DEFAULT 0, anexo_ok INTEGER DEFAULT 0, anexo_token TEXT DEFAULT '', ip TEXT DEFAULT '', criado INTEGER);
 ''')
 
 
@@ -589,6 +597,78 @@ class Handler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.respond(204, {})
 
+    def respond_file(self, path, mime):
+        size = os.path.getsize(path)
+        self.send_response(200)
+        self.send_header('Content-Type', mime or 'application/octet-stream')
+        self.send_header('Content-Length', str(size))
+        self.end_headers()
+        with open(path, 'rb') as f:
+            while chunk := f.read(65536):
+                self.wfile.write(chunk)
+
+    def client_ip(self):
+        fwd = self.headers.get('X-Forwarded-For') or ''
+        return fwd.split(',')[0].strip() or self.client_address[0]
+
+    # ---- Problem reports ("Relatar problema"): public, works without a server key ----
+    def create_report(self):
+        n = int(self.headers.get('Content-Length') or 0)
+        if n > MAX_REPORT_JSON:
+            raise ValueError('Relato grande demais')
+        ip = self.client_ip()
+        hour_ago = now_ms() - 3600 * 1000
+        if q('SELECT COUNT(*) n FROM relatos WHERE ip=? AND criado>?', (ip, hour_ago), one=True)['n'] >= REPORTS_PER_HOUR:
+            return self.respond(429, {'erro': 'Muitos relatos em pouco tempo. Tente de novo mais tarde.'})
+        body = json.loads(self.rfile.read(n) or b'{}') if n else {}
+        account = self.account()
+        errors = [str(x)[:1000] for x in (body.get('erros') or [])[:50]]
+        info = body.get('info') if isinstance(body.get('info'), dict) else {}
+        attachment = body.get('anexo') if isinstance(body.get('anexo'), dict) else None
+        name, mime, size, token = '', '', 0, ''
+        if attachment:
+            mime = str(attachment.get('mime') or '')
+            size = int(attachment.get('tamanho') or 0)
+            if not re.match(r'^(image|video)/[\w.+-]+$', mime):
+                raise ValueError('O anexo precisa ser uma imagem ou um vídeo')
+            if not 0 < size <= MAX_REPORT_FILE:
+                raise ValueError('Anexo grande demais (máx. 30 MB)')
+            name = str(attachment.get('nome') or '')[:120]
+            token = secrets.token_urlsafe(16)
+        for _ in range(5):
+            rid = secrets.token_hex(3).upper()
+            if not q('SELECT 1 FROM relatos WHERE id=?', (rid,), one=True):
+                break
+        ex('''INSERT INTO relatos (id, conta, vendedor, descricao, info, erros, anexo_nome, anexo_mime, anexo_tamanho, anexo_token, ip, criado)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+           (rid, account['id'] if account else '', str(body.get('vendedor') or '')[:80], str(body.get('descricao') or '')[:4000],
+            json.dumps(info, ensure_ascii=False)[:20000], json.dumps(errors, ensure_ascii=False), name, mime, size, token, ip, now_ms()))
+        log('relato', rid, account['id'] if account else '-', ip)
+        return self.respond(200, {'id': rid, 'anexoToken': token or None})
+
+    def upload_report_file(self, rid):
+        r = q('SELECT * FROM relatos WHERE id=?', (rid,), one=True)
+        token = self.headers.get('X-Anexo-Token') or ''
+        if not r or not r['anexo_token'] or not secrets.compare_digest(token, r['anexo_token']):
+            return self.respond(403, {'erro': 'Sem permissão'})
+        n = int(self.headers.get('Content-Length') or 0)
+        if not 0 < n <= min(r['anexo_tamanho'], MAX_REPORT_FILE):
+            raise ValueError('Tamanho do anexo inválido')
+        path = os.path.join(DATA_DIR, 'relatos', rid)
+        left = n
+        with open(path, 'wb') as f:  # streamed to disk (the container has little memory)
+            while left > 0:
+                chunk = self.rfile.read(min(65536, left))
+                if not chunk:
+                    break
+                f.write(chunk)
+                left -= len(chunk)
+        if left:
+            os.remove(path)
+            raise ValueError('Envio do anexo interrompido')
+        ex("UPDATE relatos SET anexo_ok=1, anexo_tamanho=?, anexo_token='' WHERE id=?", (n, rid))
+        return self.respond(200, {'ok': True})
+
     def body(self):
         n = int(self.headers.get('Content-Length') or 0)
         if n > MAX_MEDIA * 1.4 + 100000:
@@ -629,6 +709,11 @@ class Handler(BaseHTTPRequestHandler):
             if req_path == '/webhook/evolution/' + WEBHOOK_SECRET and method_ == 'POST':
                 handle_webhook(self.body())
                 return self.respond(200, {'ok': True})
+            if req_path == '/relatos' and method_ == 'POST':
+                return self.create_report()
+            m = re.match(r'^/relatos/([0-9A-F]{6})/anexo$', req_path)
+            if m and method_ == 'PUT':
+                return self.upload_report_file(m.group(1))
             if req_path.startswith('/admin/'):
                 if not ADMIN_KEY or not secrets.compare_digest(self.headers.get('X-Admin-Key') or '', ADMIN_KEY):
                     return self.respond(403, {'erro': 'Sem permissão'})
@@ -646,6 +731,24 @@ class Handler(BaseHTTPRequestHandler):
             return self.respond(500, {'erro': str(e)})
 
     def admin(self, method_, req_path, body):
+        if req_path == '/admin/relatos' and method_ == 'GET':
+            rows = q('''SELECT id, conta, vendedor, substr(descricao, 1, 200) descricao, anexo_mime, anexo_ok, criado
+                        FROM relatos ORDER BY criado DESC LIMIT 100''')
+            return self.respond(200, rows)
+        m = re.match(r'^/admin/relatos/([0-9A-F]{6})(/anexo)?$', req_path)
+        if m and method_ == 'GET':
+            r = q('SELECT * FROM relatos WHERE id=?', (m.group(1),), one=True)
+            if not r:
+                return self.respond(404, {'erro': 'Relato não encontrado'})
+            if m.group(2):
+                path = os.path.join(DATA_DIR, 'relatos', r['id'])
+                if not r['anexo_ok'] or not os.path.exists(path):
+                    return self.respond(404, {'erro': 'Sem anexo'})
+                return self.respond_file(path, r['anexo_mime'])
+            r.pop('anexo_token', None)
+            r['info'] = json.loads(r['info'] or '{}')
+            r['erros'] = json.loads(r['erros'] or '[]')
+            return self.respond(200, r)
         if req_path == '/admin/contas' and method_ == 'POST':
             cid = secrets.token_hex(4)
             api_key = 'vf_' + secrets.token_urlsafe(24)
