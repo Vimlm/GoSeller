@@ -1,5 +1,5 @@
-// Roda no "mundo" da página, ANTES da biblioteca WA-JS.
-// Desliga estatísticas do Google e assinatura "powered by" da biblioteca.
+// Runs in the page's "world", BEFORE the WA-JS library.
+// Turns off Google analytics and the library's "powered by" signature.
 window.WPPConfig = {
   disableGoogleAnalytics: true,
   googleAnalyticsId: null,

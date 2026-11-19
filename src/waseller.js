@@ -1,11 +1,11 @@
-// Importa um backup exportado pelo WaSeller e converte para o formato do GoSeller.
-// O WaSeller guarda vários campos cifrados com CryptoJS.AES usando uma chave FIXA da
-// extensão (igual para todos os usuários do WaSeller). Decifra aqui, no navegador, só
-// para migrar os dados do próprio vendedor — nada sai do computador.
+// Imports a backup exported by WaSeller and converts it to GoSeller format.
+// WaSeller stores several fields encrypted with CryptoJS.AES using a FIXED key of the
+// extension (the same for every WaSeller user). Decrypts here, in the browser, only
+// to migrate the seller's own data — nothing leaves the computer.
 const WaSeller = (() => {
   const CRIPT_KEY = 'ffce211a-7b07-4d91-ba5d-c40bb4034a83'; // WaSeller 7.4.x
 
-  // --- MD5 (necessário para a derivação de chave do OpenSSL/CryptoJS) ---
+  // --- MD5 (needed for the OpenSSL/CryptoJS key derivation) ---
   function md5(bytes) {
     function rl(x, c) { return (x << c) | (x >>> (32 - c)); }
     function add(a, b) { return (a + b) & 0xffffffff; }
@@ -43,8 +43,8 @@ const WaSeller = (() => {
 
   const concat = (a, b) => { const o = new Uint8Array(a.length + b.length); o.set(a); o.set(b, a.length); return o; };
 
-  // EVP_BytesToKey (MD5, 1 iteração) — o padrão do CryptoJS.AES.encrypt(obj, senha)
-  function derivar(passBytes, salt, keyLen, ivLen) {
+  // EVP_BytesToKey (MD5, 1 iteration) — the CryptoJS.AES.encrypt(obj, password) default
+  function derive(passBytes, salt, keyLen, ivLen) {
     let d = new Uint8Array(0), prev = new Uint8Array(0);
     while (d.length < keyLen + ivLen) { prev = md5(concat(concat(prev, passBytes), salt)); d = concat(d, prev); }
     return { key: d.slice(0, keyLen), iv: d.slice(keyLen, keyLen + ivLen) };
@@ -52,82 +52,82 @@ const WaSeller = (() => {
 
   const b64ToBytes = (b64) => { const bin = atob(b64); const u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; };
 
-  async function decifrar(b64) {
+  async function decrypt(b64) {
     const raw = b64ToBytes(b64);
     if (String.fromCharCode(...raw.slice(0, 8)) !== 'Salted__') throw new Error('Campo fora do formato do WaSeller.');
     const salt = raw.slice(8, 16), ct = raw.slice(16);
     const pass = new TextEncoder().encode(CRIPT_KEY);
-    const { key, iv } = derivar(pass, salt, 32, 16);
+    const { key, iv } = derive(pass, salt, 32, 16);
     const ck = await crypto.subtle.importKey('raw', key, { name: 'AES-CBC' }, false, ['decrypt']);
     const plain = await crypto.subtle.decrypt({ name: 'AES-CBC', iv }, ck, ct);
     return new TextDecoder().decode(plain);
   }
-  const D = async (v) => (typeof v === 'string' ? JSON.parse(await decifrar(v)) : v);
+  const D = async (v) => (typeof v === 'string' ? JSON.parse(await decrypt(v)) : v);
 
-  // Reconhece um arquivo do WaSeller (tem as ações em texto puro e campos cifrados)
-  function ehBackup(j) {
+  // Recognizes a WaSeller file (has the actions in plain text and encrypted fields)
+  function isBackup(j) {
     return !!(j && Array.isArray(j.respostasRapidasAcao) && typeof j.respostasRapidas === 'string' && j.respostasRapidas.startsWith('U2FsdGVkX1'));
   }
 
-  const CORES = ['#2eb5ff', '#49d126', '#ff8c42', '#a66bff', '#ff5e8a', '#17c3b2', '#ffd23f', '#6c7a89'];
-  const novoId = () => 'w' + Math.random().toString(36).slice(2, 10);
+  const COLORS = ['#2eb5ff', '#49d126', '#ff8c42', '#a66bff', '#ff5e8a', '#17c3b2', '#ffd23f', '#6c7a89'];
+  const newId = () => 'w' + Math.random().toString(36).slice(2, 10);
   const tokens = (t) => String(t || '').replace(/#primeiroNome/g, '{primeiro_nome}').replace(/#periodo-dia/g, '{saudacao}').replace(/#nome\b/g, '{nome}');
-  const mimeDe = (u) => (String(u).match(/^data:([^;,]+)/) || [, ''])[1];
+  const mimeOf = (u) => (String(u).match(/^data:([^;,]+)/) || [, ''])[1];
 
-  // Converte o backup do WaSeller no formato de backup do GoSeller (versão 2).
-  async function converter(j) {
-    const dados = {};
+  // Converts the WaSeller backup into the GoSeller backup format (version 2).
+  async function convert(j) {
+    const data = {};
     const cats = (await D(j.categoria)) || [];
-    const catNome = {}; cats.forEach((c) => (catNome[c.id] = c.name));
-    dados.categorias = cats.map((c) => c.name);
+    const categoryName = {}; cats.forEach((c) => (categoryName[c.id] = c.name));
+    data.categorias = cats.map((c) => c.name);
 
     const meta = (await D(j.respostasRapidas)) || [];
-    const acoes = {}; (j.respostasRapidasAcao || []).forEach((r) => (acoes[r.id] = r.acao || []));
-    let nMidia = 0;
-    dados.respostas = meta.map((m) => {
-      const etapas = [];
-      for (const p of acoes[m.id] || []) {
+    const actions = {}; (j.respostasRapidasAcao || []).forEach((r) => (actions[r.id] = r.acao || []));
+    let nMedia = 0;
+    data.respostas = meta.map((m) => {
+      const steps = [];
+      for (const p of actions[m.id] || []) {
         const pp = p.propriedades || {};
         if (p.type === 'txt') {
-          etapas.push({ tipo: 'texto', texto: tokens(pp.mensagem), espera: Number(pp.aguarde ?? 2) });
+          steps.push({ tipo: 'texto', texto: tokens(pp.mensagem), espera: Number(pp.aguarde ?? 2) });
         } else if (['image', 'video', 'audio', 'doc'].includes(p.type) && pp.base64) {
-          const tipoMidia = p.type === 'doc' ? 'document' : p.type;
-          const midiaId = p.id || novoId();
-          dados['midia:' + midiaId] = pp.base64; // já é dataURL
-          nMidia++;
-          const et = { tipo: 'midia', tipoMidia, midiaId, espera: Number(pp.aguarde ?? 2),
-            nomeArquivo: pp.base64Name || tipoMidia, mime: mimeDe(pp.base64),
+          const mediaType = p.type === 'doc' ? 'document' : p.type;
+          const mediaId = p.id || newId();
+          data['midia:' + mediaId] = pp.base64; // already a dataURL
+          nMedia++;
+          const et = { tipo: 'midia', tipoMidia: mediaType, midiaId: mediaId, espera: Number(pp.aguarde ?? 2),
+            nomeArquivo: pp.base64Name || mediaType, mime: mimeOf(pp.base64),
             tamanho: Math.round((pp.base64.length - pp.base64.indexOf(',') - 1) * 0.75) };
-          if (tipoMidia === 'audio') et.ptt = true;
-          if (pp.mensagem && tipoMidia !== 'audio') et.legenda = tokens(pp.mensagem);
-          etapas.push(et);
+          if (mediaType === 'audio') et.ptt = true;
+          if (pp.mensagem && mediaType !== 'audio') et.legenda = tokens(pp.mensagem);
+          steps.push(et);
         }
-        // addCRM / addLabel / removeAll* não são mensagens -> ignorados
+        // addCRM / addLabel / removeAll* are not messages -> ignored
       }
-      return { id: m.id || novoId(), nome: m.titulo || 'Sem nome', atalho: '', pasta: catNome[m.categoria] || '', etapas };
+      return { id: m.id || newId(), nome: m.titulo || 'Sem nome', atalho: '', pasta: categoryName[m.categoria] || '', etapas: steps };
     }).filter((r) => r.etapas.length);
 
     const tabs = (await D(j.userTabs)) || [];
-    dados.abas = tabs.filter((t) => t.type === 'user').map((t, i) => ({
-      id: t.id || novoId(), nome: t.tag || 'Aba ' + (i + 1), tipo: 'manual', cor: CORES[i % CORES.length],
+    data.abas = tabs.filter((t) => t.type === 'user').map((t, i) => ({
+      id: t.id || newId(), nome: t.tag || 'Aba ' + (i + 1), tipo: 'manual', cor: COLORS[i % COLORS.length],
       chats: (t.chats || []).map((c) => ({ ids: [c.id], nome: c.name || '', em: Date.now() })),
     }));
 
-    const contatos = (await D(j.contatos)) || [];
-    const nomes = {}; contatos.forEach((c) => { if (c.id && c.id.endsWith('@c.us') && c.name) nomes[c.id] = c.name; });
-    dados.nomes = nomes;
+    const contacts = (await D(j.contatos)) || [];
+    const names = {}; contacts.forEach((c) => { if (c.id && c.id.endsWith('@c.us') && c.name) names[c.id] = c.name; });
+    data.nomes = names;
 
     const notes = (await D(j.notes)) || [];
-    notes.forEach((n) => { if (!n.text) return; const id = String(n.userID || '').includes('@') ? n.userID : n.userID + '@c.us'; dados['nota:' + id] = n.text; });
+    notes.forEach((n) => { if (!n.text) return; const id = String(n.userID || '').includes('@') ? n.userID : n.userID + '@c.us'; data['nota:' + id] = n.text; });
 
     return {
       app: 'goseller', versao: 2, em: Date.now(), origem: 'waseller',
-      partes: ['respostas', 'abas', 'contatos'], dados,
-      resumo: { respostas: dados.respostas.length, categorias: dados.categorias.length, midias: nMidia,
-        abas: dados.abas.length, leads: dados.abas.reduce((s, a) => s + a.chats.length, 0),
-        nomes: Object.keys(nomes).length, notas: notes.filter((n) => n.text).length },
+      partes: ['respostas', 'abas', 'contatos'], dados: data,
+      resumo: { respostas: data.respostas.length, categorias: data.categorias.length, midias: nMedia,
+        abas: data.abas.length, leads: data.abas.reduce((s, a) => s + a.chats.length, 0),
+        nomes: Object.keys(names).length, notas: notes.filter((n) => n.text).length },
     };
   }
 
-  return { ehBackup, converter };
+  return { isBackup, convert };
 })();

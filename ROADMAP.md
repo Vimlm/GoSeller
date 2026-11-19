@@ -13,7 +13,7 @@ Legenda: [ ] a fazer · [~] em andamento · [x] feito · 👤 depende de você (
 - [x] `.gitignore` (dist/, zips, .DS_Store, .env) — pacotes gerados não vão para o Git.
 - [x] **Todo código em inglês** (padrão definido em `CLAUDE.md`): nomes de variáveis/funções/arquivos, comentários e mensagens de commit. A conversa e o texto que o vendedor vê continuam em português.
 - [x] **Dados do programa ficam em português**: chaves salvas no navegador (`abas`, `nomes`, `respostas`…), formato do backup, rotas e tabelas do servidor. Não mudam — ninguém perde dados.
-- [ ] **Traduzir o código atual para inglês** (funções, variáveis, arquivos, comentários: `conteudo.js`, `trocarNome()`…). Só renomeia código, sem mexer nos dados. Sugestão: fazer antes da Fase 2, para as correções já nascerem em inglês.
+- [x] **Código atual traduzido para inglês** (19/11): funções, variáveis, arquivos (`content.js`, `page.js`, `common.js`, `steps-editor.js`, `server/`, `tools/`, `build.sh`, `build-store.sh`) e comentários. Dados e protocolo continuam em português; comportamento conferido idêntico ao anterior.
 
 ## Fase 1 — Pôr no ar para o time (prioridade máxima)
 

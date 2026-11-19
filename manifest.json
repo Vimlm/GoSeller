@@ -37,7 +37,7 @@
       "js": [
         "src/config-wpp.js",
         "lib/wppconnect-wa.js",
-        "src/pagina.js"
+        "src/page.js"
       ],
       "world": "MAIN",
       "run_at": "document_idle"
@@ -47,10 +47,10 @@
         "https://web.whatsapp.com/*"
       ],
       "js": [
-        "src/comum.js",
+        "src/common.js",
         "src/waseller.js",
-        "src/etapas.js",
-        "src/conteudo.js"
+        "src/steps-editor.js",
+        "src/content.js"
       ],
       "css": [
         "src/layout.css"
