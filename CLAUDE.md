@@ -8,7 +8,7 @@
 - Code was translated to English on 2026-11-19. Object property names that belong to persisted data or to the extension⇄page/server protocol (e.g. `c.nome`, `o.valor`, `{ erro, dados }`, rpc names like `salvarContato`) intentionally stay in Portuguese.
 
 ## Git
-- Remote: GitHub (private). Commit every change (one commit per fix/feature) and push right after.
+- Remote: GitHub (private). Commit every change (one commit per fix/feature); push only after the owner's manual test (he runs `git push`; it is blocked for Claude).
 - Tag releases with the manifest version (`v0.8.3`).
 - Never commit `dist/`, zips, `.env` or other secrets.
 
