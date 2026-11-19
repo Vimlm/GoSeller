@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "GoSeller – Respostas rápidas, abas e envios",
   "short_name": "GoSeller",
-  "version": "0.8.4",
+  "version": "0.8.5",
   "description": "Respostas rápidas, abas de leads, Kanban e campanhas com ritmo seguro para equipes de vendas no WhatsApp Web.",
   "icons": {
     "16": "icons/16.png",
