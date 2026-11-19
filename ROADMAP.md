@@ -37,6 +37,15 @@ Legenda: [ ] a fazer · [~] em andamento · [x] feito · 👤 depende de você (
 - [ ] **Bug visual no Windows** (cabeçalho da conversa fora de ordem: foto · nome · lápis · etiquetas · câmera · celular · lupa · abas). 👤 Preciso de um print do Windows. Provável: a posição dos nossos botões depende da ordem dos ícones do WhatsApp, que muda entre versões/sistemas.
 - [x] **Backup único** (19/11): um só botão "Restaurar backup" que reconhece sozinho o formato (GoSeller ou o outro), sem citar nome de concorrente na tela. (A lógica já existe em `src/waseller.js`; é juntar os dois botões.)
 
+## Fase 3a — Etiqueta automática pela 1ª mensagem do lead (ideia de 19/11, começar 20/11)
+Leads de anúncio da Meta chegam com uma mensagem padrão pré-configurada (ex.: "Olá! Quero saber mais sobre..."). O GoSeller reconhece essa mensagem e já coloca o lead na aba/etiqueta certa, sem o vendedor fazer nada.
+- [ ] Tela de **regras**, parecida com o "Não perturbe" (lista que o vendedor edita): *se a 1ª mensagem contém/começa com/é igual a "…" → colocar na aba X (e/ou etiqueta do WhatsApp Y)*. Várias regras (uma por anúncio/curso/polo).
+- [ ] Só vale para a **primeira mensagem de um contato novo** (não reetiquetar quem já conversa).
+- [ ] Comparação tolerante: ignorar maiúsculas, acentos, espaços extras e emojis.
+- [ ] Ideal para venda a vários polos: cada cliente cadastra os próprios padrões; regras entram no backup.
+- [ ] 👤 Decidir: roda só com o WhatsApp Web aberto (extensão) ou também no servidor (Evolution, 24h)? Precisa dos exemplos reais das mensagens da Meta.
+- [ ] Opcional (avaliar): já disparar uma resposta rápida/sequência ao etiquetar.
+
 ## Fase 3 — Mensagens programadas (nova ferramenta)
 
 Agendar texto / áudio (como gravado) / vídeo / imagem / documento para **um contato, num dia e hora**, enviado **pelo servidor** (funciona com o computador desligado).
