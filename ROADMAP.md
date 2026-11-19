@@ -31,11 +31,11 @@ Legenda: [ ] a fazer · [~] em andamento · [x] feito · 👤 depende de você (
 
 ## Fase 2 — Correções que o time já sentiu
 
-- [ ] **Remarketing perde a configuração** ao trocar de tela e voltar → guardar o rascunho da campanha (storage) e restaurar ao voltar.
+- [x] **Remarketing perde a configuração** (19/11: rascunho salvo sozinho e restaurado, com "Começar do zero") ao trocar de tela e voltar → guardar o rascunho da campanha (storage) e restaurar ao voltar.
 - [ ] **Abas unificadas**: uma aba pode ser *importada de uma etiqueta* e continuar aceitando contatos *adicionados à mão* (hoje a aba por etiqueta some da lista de "adicionar manualmente"). Ao importar, decidir: "copiar uma vez" ou "manter sincronizada com a etiqueta".
   - Bônus: isso destrava aba-por-etiqueta virar coluna do Kanban e ter sequência automática (limitação atual).
 - [ ] **Bug visual no Windows** (cabeçalho da conversa fora de ordem: foto · nome · lápis · etiquetas · câmera · celular · lupa · abas). 👤 Preciso de um print do Windows. Provável: a posição dos nossos botões depende da ordem dos ícones do WhatsApp, que muda entre versões/sistemas.
-- [ ] **Backup único**: um só botão "Restaurar backup" que reconhece sozinho o formato (GoSeller ou o outro), sem citar nome de concorrente na tela. (A lógica já existe em `src/waseller.js`; é juntar os dois botões.)
+- [x] **Backup único** (19/11): um só botão "Restaurar backup" que reconhece sozinho o formato (GoSeller ou o outro), sem citar nome de concorrente na tela. (A lógica já existe em `src/waseller.js`; é juntar os dois botões.)
 
 ## Fase 3 — Mensagens programadas (nova ferramenta)
 
