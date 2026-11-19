@@ -1,10 +1,11 @@
 # GoSeller — development conventions
 
 ## Language
-- **All code is written in English**: identifiers (variables, functions, classes), file names, comments, commit messages, new server routes, DB tables/columns, storage keys.
+- **All code is written in English**: identifiers (variables, functions, classes), file names, comments, commit messages.
+- **Program data stays in pt-BR**: chrome.storage keys (`abas`, `nomes`, `respostas`…), backup format, server routes, DB tables/columns and their values. Do not rename them (no migration needed); new ones may follow the existing pt-BR naming.
 - **User-facing text stays in Portuguese (pt-BR)**: UI labels, messages, dialogs, store listing — the product is sold in Brazil.
 - Conversation with the owner is in Portuguese; planning docs for the owner (`ROADMAP.md`, `LOJA.md`, `servidor/LEIAME.md`) may stay in Portuguese.
-- Legacy code is still in Portuguese and is being migrated (see ROADMAP "Fase 0"). When touching legacy code, new code is English; renaming persisted data (chrome.storage keys, backup format, server routes/columns) requires an automatic migration that still reads the old names.
+- Legacy code is still in Portuguese and is being migrated (see ROADMAP "Fase 0"). New code is always English; only identifiers/comments/file names are renamed, never the persisted data above.
 
 ## Git
 - Remote: GitHub (private). Commit every change (one commit per fix/feature) and push right after.

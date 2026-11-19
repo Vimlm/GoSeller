@@ -8,14 +8,12 @@ Legenda: [ ] a fazer · [~] em andamento · [x] feito · 👤 depende de você (
 
 ## Fase 0 — Padrões de desenvolvimento (a partir de 19/11/2026)
 
-- [ ] 👤 **Código no GitHub** (repositório privado): criar o repo e me passar o link → conectar o `origin` e enviar o histórico.
+- [x] **Código no GitHub**: https://github.com/Vimlm/GoSeller (privado).
 - [ ] **Commit a cada mudança** a partir de hoje: um commit por correção/funcionalidade, mensagem clara, `git push` em seguida. Versões marcadas com tag (`v0.8.3`, `v0.9.0`…).
 - [x] `.gitignore` (dist/, zips, .DS_Store, .env) — pacotes gerados não vão para o Git.
-- [x] **Todo código em inglês** (padrão definido em `CLAUDE.md`): nomes de variáveis/funções/arquivos, comentários, mensagens de commit, rotas e tabelas novas do servidor. A conversa continua em português, e **o texto que o vendedor vê na tela continua em português**.
-- [ ] **Migrar o código atual para inglês** (hoje está em português: `conteudo.js`, `trocarNome()`, `abas`…). Fazer em etapas, sem quebrar quem já usa:
-  - nomes internos (funções, variáveis, arquivos) → renomear direto;
-  - **dados já salvos** (chaves do `chrome.storage` como `abas`, `nomes`, `respostas`; formato do backup; rotas e colunas do servidor) → renomear **com migração automática** (lê o nome antigo, grava o novo) e o restaurar backup continua aceitando o formato antigo;
-  - sugestão: fazer antes da Fase 2, para as correções já nascerem em inglês.
+- [x] **Todo código em inglês** (padrão definido em `CLAUDE.md`): nomes de variáveis/funções/arquivos, comentários e mensagens de commit. A conversa e o texto que o vendedor vê continuam em português.
+- [x] **Dados do programa ficam em português**: chaves salvas no navegador (`abas`, `nomes`, `respostas`…), formato do backup, rotas e tabelas do servidor. Não mudam — ninguém perde dados.
+- [ ] **Traduzir o código atual para inglês** (funções, variáveis, arquivos, comentários: `conteudo.js`, `trocarNome()`…). Só renomeia código, sem mexer nos dados. Sugestão: fazer antes da Fase 2, para as correções já nascerem em inglês.
 
 ## Fase 1 — Pôr no ar para o time (prioridade máxima)
 
