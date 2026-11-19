@@ -95,6 +95,48 @@
   const tabIds = (tab) => [...new Set((tab.chats || []).flatMap((c) => c.ids))];
   const tabHas = (tab, ids) => (tab.chats || []).some((c) => c.ids.some((x) => ids.includes(x)));
 
+  // Any tab can be linked to a WhatsApp label (tab.etiquetaId). Importing adds the label's
+  // contacts to the tab's own list, so the tab keeps accepting contacts added by hand.
+  // tab.importados remembers every id the label ever brought in: a contact removed by hand
+  // or moved in the Kanban is never brought back, and losing the label doesn't remove anyone.
+  const phoneKey = (id) => (String(id).endsWith('@c.us') ? numberKey(id) : id);
+  async function importFromLabel(tab) {
+    const chats = await rpc('listarChats', { etiqueta: String(tab.etiquetaId) });
+    tab.chats = tab.chats || [];
+    const imported = new Set(tab.importados || []);
+    const present = new Set(tabIds(tab).map(phoneKey));
+    let added = 0;
+    for (const c of chats) {
+      const key = phoneKey(c.id);
+      if (!imported.has(key) && !present.has(key)) {
+        tab.chats.push({ ids: [c.id], nome: c.nome || '', em: Date.now() });
+        present.add(key);
+        added++;
+      }
+      imported.add(key);
+    }
+    tab.importados = [...imported];
+    return added;
+  }
+
+  let syncingLabels = false;
+  async function syncLabelTabs() {
+    if (syncingLabels || !waState.logado) return;
+    syncingLabels = true;
+    try {
+      const list = await VF.read('abas', []);
+      let changed = false;
+      for (const tab of list.filter((a) => a.etiquetaId && a.sincronizar)) {
+        const before = (tab.importados || []).length;
+        const added = await importFromLabel(tab).catch(() => 0);
+        if (added || tab.importados.length !== before) changed = true;
+      }
+      if (changed) await VF.write('abas', list);
+    } finally {
+      syncingLabels = false;
+    }
+  }
+
   async function changeTab(tabId, ids, name, include) {
     const list = await VF.read('abas', []);
     const tab = list.find((a) => a.id === tabId);
@@ -144,6 +186,7 @@
       labels = await rpc('etiquetas');
       await VF.write('etiquetasCache', labels);
       renderPills();
+      syncLabelTabs();
     } catch (e) { /* still loading */ }
   }
 
@@ -154,8 +197,11 @@
       if (id === 'todas') return await rpc('filtrarLista', 'all');
       const tab = tabs.find((a) => a.id === id);
       if (!tab) return selectTab('todas');
-      if (tab.tipo === 'etiqueta') return await rpc('filtrarLista', 'labels', String(tab.etiquetaId));
-      const ids = tabIds(tab);
+      if (tab.etiquetaId && tab.sincronizar) {
+        await syncLabelTabs();
+        if (selectedTab !== id) return;
+      }
+      const ids = tabIds(tabs.find((a) => a.id === id) || tab);
       await rpc('filtrarLista', 'custom', ids.length ? ids : ['0@c.us']);
       if (!ids.length) notify(`A aba "${tab.nome}" está vazia. Abra uma conversa e marque a aba no ícone 👤 Contato.`);
     } catch (e) {
@@ -1644,7 +1690,7 @@
     // sections, but a page reload / browser restart starts clean on purpose.
     const draft = base ? null : campaignDraft;
     const cfg = await VF.config();
-    const manualTabs = tabs.filter((a) => a.tipo !== 'etiqueta');
+    const manualTabs = tabs;
     const tabOptions = (empty) => `<option value="">${empty}</option>` + manualTabs.map((a) => `<option value="${esc(a.id)}">${esc(a.nome)} (${(a.chats || []).length})</option>`).join('');
     const labelOptions = (empty) => `<option value="">${empty}</option>` + labels.map((e) => `<option value="${esc(e.id)}">${esc(e.nome)} (${e.total})</option>`).join('');
     const labelOps = () => labels.map((e) => ({ id: e.id, nome: e.nome, cor: e.cor, extra: e.total }));
@@ -1953,12 +1999,10 @@
   const COLORS = ['#25d366', '#00bfa5', '#34b7f1', '#3f51b5', '#9c27b0', '#e91e63', '#ff5722', '#f5a623', '#8bc34a', '#607d8b'];
 
   function tabDescription(a) {
-    if (a.tipo === 'etiqueta') {
-      const et = labels.find((x) => x.id === String(a.etiquetaId));
-      return et ? `Quem tem a etiqueta "${et.nome}" · ${et.total}` : 'Etiqueta não escolhida';
-    }
     const n = (a.chats || []).length;
-    return n ? `${n} lead${n > 1 ? 's' : ''} escolhido${n > 1 ? 's' : ''} por você` : 'Vazia: abra uma conversa e marque a aba no ícone 👤';
+    const et = a.etiquetaId && a.sincronizar ? labels.find((x) => x.id === String(a.etiquetaId)) : null;
+    const linked = et ? ` · ligada à etiqueta "${et.nome}"` : '';
+    return (n ? `${n} lead${n > 1 ? 's' : ''}` : 'Vazia: abra uma conversa e marque a aba no ícone 👤') + linked;
   }
 
   async function saveTab(newItem) {
@@ -2037,13 +2081,15 @@
     const orig = id ? tabs.find((x) => x.id === id) : null;
     if (id && !orig) return goTo(null);
     const a = orig ? JSON.parse(JSON.stringify(orig)) : { id: VF.newId(), nome: '', cor: COLORS[tabs.length % COLORS.length], tipo: 'manual', chats: [] };
+    // Label link being edited: '' = none; mode 'sincronizar' keeps pulling new contacts, 'copiar' imports once
+    let labelId = a.etiquetaId && a.sincronizar ? String(a.etiquetaId) : '';
+    let labelMode = 'sincronizar';
     body.innerHTML = '<div id="formAba"></div><div id="autoAba"></div>';
     const tabForm = body.querySelector('#formAba');
     const tabAuto = body.querySelector('#autoAba');
     function render() {
       const name = body.querySelector('#nomeAba')?.value ?? a.nome;
       const free = !COLORS.includes(a.cor);
-      tabAuto.classList.toggle('oculto', a.tipo === 'etiqueta');
       tabForm.innerHTML = `
         <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>${orig ? 'Editar aba' : 'Nova aba'}</h2></div>
         <label class="campo">Nome da aba<input type="text" id="nomeAba" maxlength="40" value="${esc(name)}" placeholder="Ex.: Leads Enfermagem"></label>
@@ -2052,22 +2098,23 @@
             <label class="cor-op livre ${free ? 'sel' : ''}" title="Outra cor" style="${free ? 'background:' + esc(a.cor) : ''}">${free ? '' : '+'}<input type="color" id="corLivre" value="${esc(a.cor)}"></label></div>
           <div class="previa-pilula"><span class="pilula ativa" style="border-color:${esc(a.cor)}"><span class="cor" style="background:${esc(a.cor)}"></span>${esc(name || 'Nome da aba')}</span></div>
         </div>
-        <div class="campo">Quais conversas aparecem nesta aba?
-          <label class="opcao ${a.tipo !== 'etiqueta' ? 'sel' : ''}"><input type="radio" name="tipo" value="manual" ${a.tipo !== 'etiqueta' ? 'checked' : ''}>
-            <div><b>As que eu escolher</b><small>Com a conversa aberta, clique no ícone 👤 e marque esta aba.</small></div></label>
-          <label class="opcao ${a.tipo === 'etiqueta' ? 'sel' : ''}"><input type="radio" name="tipo" value="etiqueta" ${a.tipo === 'etiqueta' ? 'checked' : ''}>
-            <div><b>As que têm uma etiqueta do WhatsApp</b><small>A aba se atualiza sozinha quando você etiqueta alguém.</small></div></label>
-        </div>
+        <label class="campo">Etiqueta do WhatsApp (opcional)<select id="etqAba"><option value="">Nenhuma</option>${labels
+          .map((t) => `<option value="${esc(t.id)}" ${labelId === t.id ? 'selected' : ''}>${esc(t.nome)} (${t.total})</option>`)
+          .join('')}</select><small>Traz para esta aba quem tem a etiqueta. Você continua podendo adicionar e tirar contatos à mão.</small></label>
         ${
-          a.tipo === 'etiqueta'
-            ? `<label class="campo">Etiqueta<select id="etqAba"><option value="">Escolha a etiqueta…</option>${labels
-                .map((t) => `<option value="${esc(t.id)}" ${String(a.etiquetaId) === t.id ? 'selected' : ''}>${esc(t.nome)} (${t.total})</option>`)
-                .join('')}</select></label>`
-            : (a.chats || []).length
-              ? `<div class="secao-t">Leads nesta aba (${a.chats.length})</div>${a.chats
-                  .map((c, j) => `<div class="contato-linha"><div class="cresce"><div>${esc(c.nome || VF.numberFromId(c.ids.find((x) => x.endsWith('@c.us'))) || c.ids[0])}</div></div><button class="link" data-tirar="${j}">tirar</button></div>`)
-                  .join('')}`
-              : ''
+          labelId
+            ? `<label class="opcao ${labelMode === 'sincronizar' ? 'sel' : ''}"><input type="radio" name="modoEtq" value="sincronizar" ${labelMode === 'sincronizar' ? 'checked' : ''}>
+                <div><b>Manter sincronizada</b><small>Quem receber a etiqueta depois entra sozinho nesta aba.</small></div></label>
+              <label class="opcao ${labelMode === 'copiar' ? 'sel' : ''}"><input type="radio" name="modoEtq" value="copiar" ${labelMode === 'copiar' ? 'checked' : ''}>
+                <div><b>Copiar uma vez</b><small>Traz quem tem a etiqueta agora. Depois a aba não puxa mais ninguém sozinha.</small></div></label>`
+            : ''
+        }
+        ${
+          (a.chats || []).length
+            ? `<div class="secao-t">Leads nesta aba (${a.chats.length})</div>${a.chats
+                .map((c, j) => `<div class="contato-linha"><div class="cresce"><div>${esc(c.nome || VF.numberFromId(c.ids.find((x) => x.endsWith('@c.us'))) || c.ids[0])}</div></div><button class="link" data-tirar="${j}">tirar</button></div>`)
+                .join('')}`
+            : ''
         }`;
     }
     render();
@@ -2092,11 +2139,14 @@
     };
     body.onchange = (e) => {
       if (e.target.closest('#autoAba')) return;
-      if (e.target.name === 'tipo') {
-        a.tipo = e.target.value;
+      if (e.target.id === 'etqAba') {
+        labelId = e.target.value;
         render();
       }
-      if (e.target.id === 'etqAba') a.etiquetaId = e.target.value;
+      if (e.target.name === 'modoEtq') {
+        labelMode = e.target.value;
+        render();
+      }
       if (e.target.id === 'corLivre') render();
     };
     body.onclick = (e) => {
@@ -2116,14 +2166,32 @@
     $('#salvarAba').onclick = async () => {
       a.nome = body.querySelector('#nomeAba').value.trim();
       if (!a.nome) return notify('Dê um nome para a aba.', 'erro');
-      if (a.tipo === 'etiqueta' && !a.etiquetaId) return notify('Escolha a etiqueta.', 'erro');
-      const autoAction = a.tipo === 'etiqueta' ? (automations[a.id] ? 'apagar' : null) : edAuto.acao();
+      const autoAction = edAuto.acao();
       if (autoAction === 'salvar') {
         const error = edAuto.validate();
         if (error) return notify(error, 'erro');
       }
       const button = $('#salvarAba');
       button.disabled = true;
+      let imported = 0;
+      a.tipo = 'manual';
+      if (labelId) {
+        const relinked = String(a.etiquetaId || '') !== labelId;
+        a.etiquetaId = labelId;
+        if (relinked) a.importados = [];
+        try {
+          imported = await importFromLabel(a);
+        } catch (e) {
+          button.disabled = false;
+          return notify('Não consegui ler a etiqueta: ' + e.message, 'erro');
+        }
+      }
+      if (labelId && labelMode === 'sincronizar') a.sincronizar = true;
+      else {
+        delete a.etiquetaId;
+        delete a.sincronizar;
+        delete a.importados;
+      }
       await saveTab(a);
       try {
         if (autoAction === 'salvar') await saveAutomation(a, edAuto.value(), edAuto.nova);
@@ -2133,7 +2201,8 @@
         return notify('A aba foi salva, mas a sequência automática não: ' + e.message, 'erro', 9000);
       }
       if (selectedTab === a.id) selectTab(a.id);
-      notify(orig ? 'Aba salva.' : `Aba "${a.nome}" criada.${a.tipo === 'etiqueta' ? '' : ' Abra uma conversa e marque a aba no ícone 👤.'}`, 'ok');
+      const fromLabel = imported ? ` ${imported} contato${imported > 1 ? 's' : ''} da etiqueta entr${imported > 1 ? 'aram' : 'ou'}.` : '';
+      notify((orig ? 'Aba salva.' : `Aba "${a.nome}" criada.`) + (fromLabel || (orig || labelId ? '' : ' Abra uma conversa e marque a aba no ícone 👤.')), 'ok');
       goTo(null);
     };
     if (!orig) body.querySelector('#nomeAba').focus();
@@ -2156,7 +2225,7 @@
     if (d.startsWith('55') && d.length === 13 && d[4] === '9') d = d.slice(0, 4) + d.slice(5);
     return d;
   };
-  const kanbanColumns = () => tabs.filter((a) => a.tipo !== 'etiqueta');
+  const kanbanColumns = () => tabs;
   const UNITS = { min: 'minutos', h: 'horas', d: 'dias' };
 
   async function api(method, path, body) {
@@ -2200,7 +2269,7 @@
     const newItems = [];
     const leave = [];
     for (const a of after || []) {
-      if (!automations[a.id] || a.tipo === 'etiqueta') continue;
+      if (!automations[a.id]) continue;
       const oldOnes = (mapping.get(a.id) || {}).chats || [];
       const currentOnes = a.chats || [];
       currentOnes.forEach((c) => !oldOnes.some((v) => v.ids.some((x) => c.ids.includes(x))) && newItems.push([a.id, c]));
@@ -3007,7 +3076,7 @@
       q('#csvGrupos'),
       () => [
         ...labels.map((e) => ({ id: 'e:' + e.id, nome: e.nome, cor: e.cor, grupo: 'Etiquetas do WhatsApp', extra: e.total })),
-        ...tabs.filter((a) => a.tipo !== 'etiqueta').map((a) => ({ id: 'a:' + a.id, nome: a.nome, cor: a.cor, grupo: 'Abas', extra: (a.chats || []).length })),
+        ...tabs.map((a) => ({ id: 'a:' + a.id, nome: a.nome, cor: a.cor, grupo: 'Abas', extra: (a.chats || []).length })),
       ],
       [],
       null,
@@ -3073,10 +3142,6 @@
   // Top bar: tab pills
   // =====================================================================
   function tabCount(tab) {
-    if (tab.tipo === 'etiqueta') {
-      const et = labels.find((x) => x.id === String(tab.etiquetaId));
-      return et ? et.total : null;
-    }
     return (tab.chats || []).length;
   }
 
@@ -3085,7 +3150,7 @@
     for (const a of tabs) {
       const n = tabCount(a);
       html.push(
-        `<button class="pilula ${n === null ? 'sem-conta' : ''} ${selectedTab === a.id ? 'ativa' : ''}" data-aba="${esc(a.id)}" title="${a.tipo === 'etiqueta' ? 'Aba ligada a uma etiqueta' : 'Aba manual'}">` +
+        `<button class="pilula ${n === null ? 'sem-conta' : ''} ${selectedTab === a.id ? 'ativa' : ''}" data-aba="${esc(a.id)}" title="${a.etiquetaId && a.sincronizar ? 'Aba ligada a uma etiqueta (quem recebe a etiqueta entra sozinho)' : 'Aba'}">` +
           `<span class="cor" style="background:${esc(a.cor || '#25d366')}"></span>${esc(a.nome)}${n === null ? '' : `<span class="contador">${n}</span>`}</button>`
       );
     }
@@ -3200,7 +3265,7 @@
     headerNameBtn.lastChild.textContent = '';
     headerNameBtn.style.color = mine ? '#21c063' : '#8696a0';
     headerNameBtn.title = mine ? `Nome no GoSeller: ${mine} (clique para mudar)` : 'Mudar o nome deste contato (GoSeller)';
-    const myOnes = ids ? tabs.filter((a) => a.tipo !== 'etiqueta' && tabHas(a, ids)) : [];
+    const myOnes = ids ? tabs.filter((a) => tabHas(a, ids)) : [];
     tabsHeaderBtn.lastChild.innerHTML = myOnes
       .slice(0, 3)
       .map((a) => `<span style="display:block;width:9px;height:9px;border-radius:50%;background:${esc(a.cor)};box-shadow:0 0 0 2px #111b21"></span>`)
@@ -3239,7 +3304,7 @@
   const openHeaderTabs = async () => {
     const ids = await headerIds();
     if (!ids) return notify('Abra uma conversa (que não seja grupo).');
-    const manualTabs = tabs.filter((a) => a.tipo !== 'etiqueta');
+    const manualTabs = tabs;
     const name = nameOf(ids, currentChat.nome);
     openMultiPop(
       tabsHeaderBtn,
@@ -3700,6 +3765,12 @@
   // =====================================================================
   async function reloadData() {
     tabs = await VF.read('abas', []);
+    // Old label-only tabs (tipo 'etiqueta') become regular tabs linked to the label, kept in sync
+    if (tabs.some((a) => a.tipo === 'etiqueta')) {
+      tabs = tabs.map((a) => (a.tipo === 'etiqueta' ? { ...a, tipo: 'manual', chats: a.chats || [], sincronizar: true } : a));
+      await VF.write('abas', tabs);
+      syncLabelTabs();
+    }
     replies = await VF.read('respostas', []);
     scripts = await VF.read('scripts', []);
     names = await VF.read('nomes', {});
@@ -3753,6 +3824,7 @@
   bindKanbanEvents();
   loadServer();
   setInterval(syncKanban, 60000);
+  setInterval(syncLabelTabs, 60000);
   VF.read('motorStatus', null).then((s) => s && ((currentStatus = s), updateStatus()));
   setInterval(engineStep, 15000);
   setTimeout(engineStep, 5000);

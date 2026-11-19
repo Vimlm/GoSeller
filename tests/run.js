@@ -29,6 +29,11 @@ function helpers(page) {
       await h.sleep(300);
     },
     reload: () => h.load({ keepStorage: true }),
+    // Opens a chat in the fake WhatsApp (fires the same event as clicking a conversation)
+    async openChat(id) {
+      await page.evaluate((x) => WPP.chat.openChatBottom(x), id);
+      await h.sleep(1500); // header buttons are placed by a 1.2s check
+    },
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
     async waitFor(selector, timeout = 5000) {
       const end = Date.now() + timeout;
@@ -51,7 +56,10 @@ function helpers(page) {
       await h.waitFor(selector);
       await page.evaluate((s, f) => {
         const el = new Function('selector', `return (${f})(selector)`)(s);
-        el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, composed: true }));
+        // same sequence as a real mouse click (some screens react to pointerdown/up, e.g. drag-to-reorder)
+        const opts = { bubbles: true, composed: true, button: 0, isPrimary: true, pointerId: 1 };
+        el.dispatchEvent(new PointerEvent('pointerdown', opts));
+        el.dispatchEvent(new PointerEvent('pointerup', opts));
         el.click();
       }, selector, inShadow.toString());
       await h.sleep(150);

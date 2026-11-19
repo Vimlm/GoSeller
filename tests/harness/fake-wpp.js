@@ -56,6 +56,8 @@
       addOrRemoveLabels: async (ids, ops) => (window.__labelOps = (window.__labelOps || []).concat([{ ids, ops }])),
     },
   };
+  // Tests can change a contact's labels: __setLabels('5511999990003@c.us', ['1'])
+  window.__setLabels = (id, ids) => (findChat(id).labels = ids);
   // Tests can simulate an incoming message: __incoming('5511999990001@c.us', 'oi')
   window.__incoming = (from, body) =>
     (listeners['chat.new_message'] || []).forEach((fn) => fn({ id: { fromMe: false, remote: wid(from) }, isNewMsg: true, type: 'chat', body }));
