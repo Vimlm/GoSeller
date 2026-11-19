@@ -582,10 +582,13 @@
   let view = null; // sub-screen: 'editar:<id>', 'nova', 'campanha:<id>'...
   const uiState = { busca: '', filtroTipo: 'tudo', fechadas: new Set(), previa: new Set(), filtroContatos: 'todos' };
 
+  const lastViews = {}; // section -> last sub-screen, so coming back lands where the user was
+
   function openSidePanel(section, newView = null) {
-    if (currentSection === section && !newView && !$('#lateral').classList.contains('oculto') && view === null) return closeSidePanel();
+    if (currentSection === section && !newView && !$('#lateral').classList.contains('oculto')) return closeSidePanel();
     currentSection = section;
-    view = newView;
+    view = newView || lastViews[section] || null;
+    lastViews[section] = view;
     $('#lateral').classList.remove('oculto');
     document.documentElement.style.setProperty('--vf-direita', '380px');
     $$('[data-abrir]').forEach((b) => b.classList.toggle('ativo', b.dataset.abrir === section && !b.classList.contains('logo')));
@@ -600,6 +603,7 @@
   }
   function goTo(newView) {
     view = newView;
+    if (currentSection) lastViews[currentSection] = newView;
     renderSidePanel();
     $('#corpo').scrollTop = 0;
   }
@@ -1747,15 +1751,6 @@
       selAdd.set(draft.addEtiquetas);
       selRem.set(draft.removerEtiquetas);
       selExcluded.set(draft.excluirEtiquetas);
-      notify('Continuando a campanha que você estava montando.', 'info', 7000, {
-        texto: 'Começar do zero',
-        fn: async () => {
-          draftDone = true;
-          clearTimeout(draftTimer);
-          await VF.remove('rascunhoCampanha');
-          if (currentSection === 'envio' && view === 'nova') renderSidePanel();
-        },
-      });
     } else if (!labels.length && !manualTabs.length) {
       q('#origem').value = 'lista';
     }
