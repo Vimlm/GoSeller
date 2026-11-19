@@ -11,6 +11,12 @@ npm test -- draft   # só os arquivos com "draft" no nome
 ```
 Se um teste falhar, uma foto da tela fica em `tests/fail-*.png`.
 
+Servidor (sobe o `server/app.py` local com dados temporários):
+```
+python3 tests/server_test.py          # rotas do servidor (relatos etc.)
+node tests/background_report_test.js  # envio de relato de verdade: background.js → servidor local
+```
+
 ## Arquivos
 - `harness/whatsapp.html` — página falsa do WhatsApp (cabeçalho, campo de mensagem) que carrega a extensão
 - `harness/fake-wpp.js` — WhatsApp de mentira: 3 conversas, 2 etiquetas, registra envios em `window.__sent`
