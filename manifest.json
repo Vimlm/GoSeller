@@ -26,7 +26,6 @@
   ],
   "host_permissions": [
     "https://web.whatsapp.com/*",
-    "https://agents.coolmeia.tech/*",
     "https://*.goseller.app.br/*"
   ],
   "content_scripts": [

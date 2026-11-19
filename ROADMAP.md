@@ -17,8 +17,8 @@ Legenda: [ ] a fazer · [~] em andamento · [x] feito · 👤 depende de você (
 
 ## Fase 1 — Pôr no ar para o time (prioridade máxima)
 
-- [~] 👤 **Comprar `goseller.app.br`** no registro.br e apontar o DNS para a VPS (72.61.135.26). (19/11: comprado; registros A `api`, A raiz e CNAME `www` criados — aguardando propagar)
-- [ ] **Trocar os domínios antigos** (pouca coisa hoje):
+- [x] 👤 **Comprar `goseller.app.br`** no registro.br e apontar o DNS para a VPS (72.61.135.26). (19/11: comprado; DNS propagado 11:28)
+- [x] **Trocar os domínios antigos** (19/11: extensão usa `https://api.goseller.app.br`; rota antiga mantida até todos estarem na 0.8.4; renomear `/opt/vendaflow` fica para depois — só nome interno):
   - `src/background.js` → `SERVIDOR_PADRAO` (`agents.coolmeia.tech/vendaflow` → `api.goseller.app.br`)
   - `manifest.json` → `host_permissions` (`agents.coolmeia.tech/*` → `*.goseller.app.br/*`)
   - VPS: rota nova no Traefik + certificado; manter a rota antiga uns dias (quem estiver na versão velha não cai)

@@ -44,7 +44,7 @@ Ferramenta de produtividade para equipes de vendas no WhatsApp Web: respostas r�
 - **unlimitedStorage:** `As respostas rápidas podem conter áudios, vídeos e documentos, que passam do limite padrão de armazenamento.`
 - **alarms:** `Disparar no horário certo os envios das campanhas e sincronizar o Kanban com o servidor a cada minuto.`
 - **Permissão de host (web.whatsapp.com):** `A extensão funciona dentro do WhatsApp Web, adicionando a barra de abas, o painel lateral e os botões de resposta rápida.`
-- **Permissão de host (agents.coolmeia.tech / *.goseller.app.br):** `Servidor do próprio GoSeller, usado apenas quando o usuário ativa o Kanban automático (sequências de mensagens).`
+- **Permissão de host (*.goseller.app.br):** `Servidor do próprio GoSeller, usado apenas quando o usuário ativa o Kanban automático (sequências de mensagens).`
 - **Código remoto:** marcar **"Não, não uso código remoto"** (a biblioteca vai dentro do pacote).
 
 **Uso de dados (marcar):**
@@ -54,7 +54,7 @@ Ferramenta de produtividade para equipes de vendas no WhatsApp Web: respostas r�
 
 **URL da política de privacidade:**
 ```
-https://agents.coolmeia.tech/vendaflow/privacidade
+https://api.goseller.app.br/privacidade
 ```
 (trocar para `https://api.goseller.app.br/privacidade` quando o domínio novo estiver no ar)
 

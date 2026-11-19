@@ -61,7 +61,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // GoSeller server (Kanban and automatic sequences). Calls go out from here
 // (not from the WhatsApp page) to avoid the CORS block.
-const DEFAULT_SERVER = 'https://agents.coolmeia.tech/vendaflow';
+const DEFAULT_SERVER = 'https://api.goseller.app.br';
 async function callApi({ metodo: method, caminho: path, corpo: body }) {
   const { servidor: server = {} } = await chrome.storage.local.get('servidor');
   if (!server.chave) return { erro: 'Servidor não conectado' };
