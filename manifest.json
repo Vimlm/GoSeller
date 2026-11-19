@@ -48,6 +48,7 @@
       "js": [
         "src/common.js",
         "src/waseller.js",
+        "src/voice-note.js",
         "src/steps-editor.js",
         "src/content.js"
       ],

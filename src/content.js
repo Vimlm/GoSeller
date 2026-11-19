@@ -89,15 +89,25 @@
         const ms = typing ? Math.min(9000, 1200 + text.length * 45) * VF.random(0.8, 1.2) : 0;
         await rpc('enviarTexto', chatId, text, { digitandoMs: Math.round(ms) });
       } else {
-        const dataUrl = await VF.readMedia(e.midiaId);
+        let dataUrl = await VF.readMedia(e.midiaId);
         if (!dataUrl) throw new Error('Arquivo não encontrado: ' + (e.nomeArquivo || 'mídia'));
+        const voiceNote = e.tipoMidia === 'audio' && !!e.ptt;
+        if (voiceNote && !VoiceNote.isOggOpus(dataUrl)) {
+          // MP3/M4A as a voice note can't be played by the receiver: convert once and keep the converted file
+          try {
+            dataUrl = (await VoiceNote.convert(dataUrl)).dataUrl;
+          } catch (err) {
+            throw new Error('Não consegui converter o áudio para nota de voz (' + (err.message || err) + ')');
+          }
+          await VF.write('midia:' + e.midiaId, dataUrl);
+        }
         let ms = 0;
         if (typing) ms = e.tipoMidia === 'audio' && e.ptt ? Math.min(15000, (e.duracao || 5) * 1000) : 2500;
         await rpc('enviarArquivo', chatId, dataUrl, {
           tipo: e.tipoMidia,
           legenda: VF.buildText(e.legenda || '', data),
           nomeArquivo: e.nomeArquivo,
-          mime: e.mime,
+          mime: voiceNote ? VoiceNote.MIME : e.mime,
           ptt: !!e.ptt,
           digitandoMs: Math.round(ms),
         });
