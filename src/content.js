@@ -1260,10 +1260,10 @@
       const list = await VF.read('scripts', []);
       if (shortcut && (list.some((x) => x.atalho === shortcut && x.id !== s.id) || replies.some((x) => x.atalho === shortcut)))
         return notify(`O atalho /${shortcut} já está em uso.`, 'erro');
-      const createNew = { ...s, nome: name, atalho: shortcut, itens: items };
+      const updated = { ...s, nome: name, atalho: shortcut, itens: items };
       const i = list.findIndex((x) => x.id === s.id);
-      if (i >= 0) list[i] = createNew;
-      else list.push(createNew);
+      if (i >= 0) list[i] = updated;
+      else list.push(updated);
       await VF.write('scripts', list);
       scripts = list;
       notify('Script salvo.', 'ok');
@@ -1328,7 +1328,7 @@
     const eds = el.querySelector('.modelos-eds');
     const editors = [];
     let activeIdx = 0;
-    function createNew(steps) {
+    function addTemplate(steps) {
       const box = document.createElement('div');
       eds.appendChild(box);
       editors.push({ caixa: box, ed: StepsEditor(box, steps, null, { semPrevia: true }) });
@@ -1340,7 +1340,7 @@
         (editors.length < MAX ? `<button type="button" class="add-modelo" data-add-modelo>+ Outro modelo</button>` : '') +
         (editors.length > 1 ? '<span class="dica">sorteado para cada lead</span>' : '');
     }
-    (initials && initials.length ? initials : [[{ tipo: 'texto', texto: '', espera: 2 }]]).slice(0, MAX).forEach(createNew);
+    (initials && initials.length ? initials : [[{ tipo: 'texto', texto: '', espera: 2 }]]).slice(0, MAX).forEach(addTemplate);
     render();
     bar.addEventListener('click', async (e) => {
       const takeOut = e.target.closest('[data-tirar-modelo]');
@@ -1353,7 +1353,7 @@
         return render();
       }
       if (e.target.closest('[data-add-modelo]')) {
-        createNew(editors[activeIdx].ed.value()); // starts as a copy of the open template
+        addTemplate(editors[activeIdx].ed.value()); // starts as a copy of the open template
         activeIdx = editors.length - 1;
         notify(`Modelo ${activeIdx + 1} criado como cópia. Mude o texto para ficar diferente.`, 'info', 5000);
         return render();
@@ -1382,8 +1382,8 @@
       value: () => editors[activeIdx].ed.value(),
       all: () => editors.map((m) => m.ed.value()),
       set: (steps) => editors[activeIdx].ed.set(steps),
-      ativo: () => activeIdx,
-      quantos: () => editors.length,
+      activeIndex: () => activeIdx,
+      count: () => editors.length,
     };
   }
 
@@ -1431,7 +1431,7 @@
     c.status = status;
     c.motivo = '';
     await VF.write('campanha:' + id, c);
-    if (status === 'ativa') setTimeout(passoDoMotor, 300);
+    if (status === 'ativa') setTimeout(engineStep, 300);
   }
 
   async function deleteCampaign(c) {
@@ -1455,7 +1455,7 @@
     body.innerHTML = `
       <div class="lat-titulo"><h2>Envio em massa</h2><span class="dica">Hoje: <b>${todayCount}</b>/${cfg.limiteDia}</span></div>
       <button class="btn" id="nova" style="width:100%;margin-bottom:12px">${IC.mais2} Nova campanha</button>
-      ${statusAtual.tipo !== 'parado' ? `<div class="ok-box">${esc(statusText())}</div>` : ''}
+      ${currentStatus.tipo !== 'parado' ? `<div class="ok-box">${esc(statusText())}</div>` : ''}
       ${
         order.length
           ? order
@@ -1507,7 +1507,7 @@
       <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>${esc(c.nome)}</h2><span class="etq ${c.status}">${STATUS_NAME[c.status]}</span></div>
       ${c.motivo && c.status === 'pausada' ? `<div class="alerta">${esc(c.motivo)}</div>` : ''}
       ${notSentYet ? `<div class="alerta">Nenhuma mensagem foi enviada. Veja abaixo o motivo de cada contato (coluna da direita).</div>` : ''}
-      ${c.status === 'ativa' && c.id === statusAtual.campanhaId ? `<div class="ok-box">${esc(statusText())}</div>` : ''}
+      ${c.status === 'ativa' && c.id === currentStatus.campanhaId ? `<div class="ok-box">${esc(statusText())}</div>` : ''}
       <div class="progresso"><div style="width:${pct}%"></div></div>
       <div class="numeros">
         <div><b>${n.enviado}</b><span>enviados</span></div><div><b>${n.respondeu}</b><span>responderam</span></div>
@@ -1838,7 +1838,7 @@
       return { contatos: contacts, fora: outside };
     }
 
-    function estimar(qty) {
+    function estimate(qty) {
       const medioSeg = (cfg.intervaloMin + cfg.intervaloMax) / 2 + 10;
       const pauses = Math.floor(qty / cfg.loteTamanho) * ((cfg.pausaLoteMin + cfg.pausaLoteMax) / 2) * 60;
       const hours = (qty * medioSeg + pauses) / 3600;
@@ -1866,7 +1866,7 @@
           const names = audience.contatos.slice(0, 5).map((c) => c.nome || VF.numberFromId(c.id) || c.id.split('@')[0]);
           target.innerHTML = `<b style="color:var(--verde-txt);font-size:14px">👥 ${audience.contatos.length} lead(s) vão receber</b>
             ${names.length ? `<div>${esc(names.join(', '))}${audience.contatos.length > 5 ? '…' : ''}</div>` : ''}${reasons.length ? `<div>Fora: ${reasons.join(', ')}</div>` : ''}`;
-          q('#estimativa').textContent = audience.contatos.length ? estimar(audience.contatos.length) : '';
+          q('#estimativa').textContent = audience.contatos.length ? estimate(audience.contatos.length) : '';
         } catch (e) {
           audience = null;
           target.innerHTML = `<span style="color:var(--vermelho)">${esc(e.message)}</span>`;
@@ -1895,7 +1895,7 @@
       if (error) return notify(error, 'erro');
       try {
         await sendToMe(editor.value());
-        notify(`Teste${editor.quantos() > 1 ? ` do Modelo ${editor.ativo() + 1}` : ''} enviado para você (com o nome "Maria Teste").`, 'ok');
+        notify(`Teste${editor.count() > 1 ? ` do Modelo ${editor.activeIndex() + 1}` : ''} enviado para você (com o nome "Maria Teste").`, 'ok');
       } catch (e) {
         notify(e.message, 'erro');
       }
@@ -1944,7 +1944,7 @@
       if (!otherActive) await VF.write('motor', { ...engine, proximoEm: 0 });
       notify('Campanha criada! A primeira mensagem sai em instantes.', 'ok');
       goTo('campanha:' + c.id);
-      setTimeout(passoDoMotor, 300);
+      setTimeout(engineStep, 300);
     };
   }
 
@@ -2917,7 +2917,7 @@
     const q = (s) => body.querySelector(s);
     $('#salvar').onclick = async () => {
       const n = (id) => Math.max(0, Number(q('#' + id).value) || 0);
-      const createNew = {
+      const newConfig = {
         nomeVendedor: q('#nomeVendedor').value.trim(),
         intervaloMin: Math.max(5, n('intervaloMin')),
         intervaloMax: Math.max(5, n('intervaloMax')),
@@ -2934,11 +2934,11 @@
         digitacaoNasRespostas: q('#digitacaoNasRespostas').checked,
         palavrasSair: q('#palavrasSair').value.split(',').map((s) => s.trim()).filter(Boolean),
       };
-      if (createNew.intervaloMax < createNew.intervaloMin) [createNew.intervaloMin, createNew.intervaloMax] = [createNew.intervaloMax, createNew.intervaloMin];
-      if (createNew.pausaLoteMax < createNew.pausaLoteMin) [createNew.pausaLoteMin, createNew.pausaLoteMax] = [createNew.pausaLoteMax, createNew.pausaLoteMin];
-      if (createNew.usarHorario && !createNew.dias.length) return notify('Marque pelo menos um dia.', 'erro');
-      if (createNew.usarHorario && VF.toMinutes(createNew.horaFim) <= VF.toMinutes(createNew.horaInicio)) return notify('O horário final precisa ser depois do inicial.', 'erro');
-      await VF.write('config', createNew);
+      if (newConfig.intervaloMax < newConfig.intervaloMin) [newConfig.intervaloMin, newConfig.intervaloMax] = [newConfig.intervaloMax, newConfig.intervaloMin];
+      if (newConfig.pausaLoteMax < newConfig.pausaLoteMin) [newConfig.pausaLoteMin, newConfig.pausaLoteMax] = [newConfig.pausaLoteMax, newConfig.pausaLoteMin];
+      if (newConfig.usarHorario && !newConfig.dias.length) return notify('Marque pelo menos um dia.', 'erro');
+      if (newConfig.usarHorario && VF.toMinutes(newConfig.horaFim) <= VF.toMinutes(newConfig.horaInicio)) return notify('O horário final precisa ser depois do inicial.', 'erro');
+      await VF.write('config', newConfig);
       notify('Configurações salvas.', 'ok');
     };
     const downloadFile = (content, name, type) => {
@@ -2975,9 +2975,9 @@
         if (!sel.length) return notify('Marque pelo menos uma parte.', 'erro');
         const current = await chrome.storage.local.get(null);
         await chrome.storage.local.remove(Object.keys(current).filter((k) => sel.includes(keyPart(k))));
-        const createNew = {};
-        Object.keys(j.dados).forEach((k) => (sel.includes(keyPart(k)) || k.startsWith('midia:')) && (createNew[k] = j.dados[k]));
-        await chrome.storage.local.set(createNew);
+        const restored = {};
+        Object.keys(j.dados).forEach((k) => (sel.includes(keyPart(k)) || k.startsWith('midia:')) && (restored[k] = j.dados[k]));
+        await chrome.storage.local.set(restored);
         await reloadData();
         VF.cleanOrphanMedia();
         notify('Backup restaurado.', 'ok');
@@ -3435,7 +3435,7 @@
   // Bulk-send engine
   // =====================================================================
   let busy = false;
-  let statusAtual = { texto: 'Envio em massa', tipo: 'parado' };
+  let currentStatus = { texto: 'Envio em massa', tipo: 'parado' };
 
   function formatDelay(ms) {
     const s = Math.max(0, Math.round(ms / 1000));
@@ -3443,7 +3443,7 @@
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   }
   function statusText() {
-    const s = statusAtual;
+    const s = currentStatus;
     if (s.tipo === 'enviando' && s.proximoEm) {
       const missing = s.proximoEm - Date.now();
       return missing > 0 ? `${s.texto} · próximo em ${formatDelay(missing)}` : `${s.texto} · enviando…`;
@@ -3453,24 +3453,24 @@
   // Only touches the screen when the text changes (before, it rewrote the button all the time)
   let lastStatus = '';
   function updateStatus() {
-    const className = 'status-envio ' + (statusAtual.tipo || 'parado');
-    const text = statusAtual.tipo === 'parado' ? 'Envio em massa' : statusText();
+    const className = 'status-envio ' + (currentStatus.tipo || 'parado');
+    const text = currentStatus.tipo === 'parado' ? 'Envio em massa' : statusText();
     if (className + text === lastStatus) return;
     lastStatus = className + text;
     const b = $('#statusEnvio');
     b.className = className;
     b.querySelector('span').textContent = text;
   }
-  setInterval(() => statusAtual.tipo !== 'parado' && document.visibilityState === 'visible' && updateStatus(), 1000);
+  setInterval(() => currentStatus.tipo !== 'parado' && document.visibilityState === 'visible' && updateStatus(), 1000);
   $('#statusEnvio').addEventListener('click', () => {
-    openSidePanel('envio', statusAtual.campanhaId && statusAtual.tipo !== 'parado' ? 'campanha:' + statusAtual.campanhaId : null);
+    openSidePanel('envio', currentStatus.campanhaId && currentStatus.tipo !== 'parado' ? 'campanha:' + currentStatus.campanhaId : null);
   });
 
   async function saveStatus(s) {
     // Doesn't save the same status again (each save wakes up all tabs)
-    if (s.texto === statusAtual.texto && s.tipo === statusAtual.tipo && (s.proximoEm || 0) === (statusAtual.proximoEm || 0)) return;
-    statusAtual = { ...s, atualizado: Date.now() };
-    await VF.write('motorStatus', statusAtual);
+    if (s.texto === currentStatus.texto && s.tipo === currentStatus.tipo && (s.proximoEm || 0) === (currentStatus.proximoEm || 0)) return;
+    currentStatus = { ...s, atualizado: Date.now() };
+    await VF.write('motorStatus', currentStatus);
     updateStatus();
   }
 
@@ -3500,7 +3500,7 @@
     waitingIds = null;
   }
 
-  async function passoDoMotor() {
+  async function engineStep() {
     if (busy || hasActiveCampaign === false) return;
     busy = true;
     try {
@@ -3508,7 +3508,7 @@
       const campaign = campaigns.find((c) => c.status === 'ativa');
       hasActiveCampaign = !!campaign;
       if (!campaign) {
-        if (statusAtual.tipo !== 'parado') await saveStatus({ texto: 'Envio em massa', tipo: 'parado' });
+        if (currentStatus.tipo !== 'parado') await saveStatus({ texto: 'Envio em massa', tipo: 'parado' });
         return;
       }
       if (!(await acquireLock())) return; // another WhatsApp tab is handling the sends
@@ -3691,7 +3691,7 @@
   // Messages from the background
   // =====================================================================
   chrome.runtime.onMessage.addListener((msg) => {
-    if (msg.tipo === 'tick') passoDoMotor();
+    if (msg.tipo === 'tick') engineStep();
     if (msg.tipo === 'abrirPainel') openSidePanel(msg.secao || 'respostas');
     return false;
   });
@@ -3728,11 +3728,11 @@
       }
     }
     if (chg.motorStatus && chg.motorStatus.newValue) {
-      statusAtual = chg.motorStatus.newValue;
+      currentStatus = chg.motorStatus.newValue;
       updateStatus();
     }
     const campaignTouched = keys.some((k) => k.startsWith('campanha'));
-    if (campaignTouched || chg.config) setTimeout(passoDoMotor, 800);
+    if (campaignTouched || chg.config) setTimeout(engineStep, 800);
     // Refreshes the open panel (except form screens)
     const relevant =
       (currentSection === 'respostas' && (chg.respostas || chg.scripts || chg.categorias)) ||
@@ -3754,7 +3754,7 @@
   bindKanbanEvents();
   loadServer();
   setInterval(syncKanban, 60000);
-  VF.read('motorStatus', null).then((s) => s && ((statusAtual = s), updateStatus()));
-  setInterval(passoDoMotor, 15000);
-  setTimeout(passoDoMotor, 5000);
+  VF.read('motorStatus', null).then((s) => s && ((currentStatus = s), updateStatus()));
+  setInterval(engineStep, 15000);
+  setTimeout(engineStep, 5000);
 })();
