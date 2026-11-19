@@ -3426,6 +3426,7 @@
     );
   }
   const SEARCH_SELECTORS = '[data-icon="search-alt"],[data-icon="search"],[data-icon="search-refreshed"],[data-icon="wds-ic-search"],[aria-label="Pesquisar"],[aria-label="Search"],[aria-label="Pesquisar…"]';
+  const LIST_CHIP_TEXTS = ['Adicionar à lista', 'Add to list', 'Agregar a la lista', 'Añadir a la lista'];
   function fitHeader() {
     const header = document.querySelector('#main header');
     if (!header) return;
@@ -3442,14 +3443,15 @@
       while (block.parentElement && block.parentElement !== header && !(search0 && block.parentElement.contains(search0)) && !block.parentElement.contains(tabsHeaderBtn)) block = block.parentElement;
       if (headerNameBtn.previousElementSibling !== block) block.after(headerNameBtn);
     }
-    // Tabs button left of the label (or of the search icon, if the contact has no label)
+    // Tabs button left of the label chip. New WhatsApp versions show "Adicionar à lista" in that same
+    // chip when the contact has no label/list; only without any chip it goes left of the search icon.
     const search = header.querySelector(SEARCH_SELECTORS);
     if (!search) return;
     let block = search.closest('button,[role="button"]') || search;
     while (block.parentElement && block.parentElement !== header && block.parentElement.childElementCount === 1) block = block.parentElement;
     let parent = block.parentElement;
     let before = block;
-    const labelNames = new Set(labels.map((t) => t.nome));
+    const labelNames = new Set([...labels.map((t) => t.nome), ...LIST_CHIP_TEXTS]);
     for (let up = parent, child = block, n = 0; up && up !== header.parentElement && n < 6; child = up, up = up.parentElement, n++) {
       const chip = [...up.querySelectorAll('span,div')].find((el) => !el.closest('#vf-abas-wa') && el.childElementCount === 0 && labelNames.has(el.textContent.trim()) && !child.contains(el) && !el.closest('span[dir="auto"]'));
       if (chip) {
