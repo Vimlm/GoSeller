@@ -1635,10 +1635,14 @@
     };
   }
 
+  let campaignDraft = null;
+  VF.remove('rascunhoCampanha'); // drafts used to be stored; drop any leftover from older versions
+
   async function newCampaignScreen(body, baseId) {
     const base = baseId ? await VF.read('campanha:' + baseId) : null;
-    // Unsent "new campaign" form is kept as a draft, so leaving the screen doesn't lose it
-    const draft = base ? null : await VF.read('rascunhoCampanha', null);
+    // Unsent "new campaign" form is kept as an in-memory draft: survives switching
+    // sections, but a page reload / browser restart starts clean on purpose.
+    const draft = base ? null : campaignDraft;
     const cfg = await VF.config();
     const manualTabs = tabs.filter((a) => a.tipo !== 'etiqueta');
     const tabOptions = (empty) => `<option value="">${empty}</option>` + manualTabs.map((a) => `<option value="${esc(a.id)}">${esc(a.nome)} (${(a.chats || []).length})</option>`).join('');
@@ -1723,7 +1727,7 @@
     function saveDraftNow() {
       clearTimeout(draftTimer);
       if (base || draftDone) return;
-      VF.write('rascunhoCampanha', draftSnapshot());
+      campaignDraft = draftSnapshot();
     }
     function saveDraftSoon() {
       if (base || draftDone) return;
@@ -1930,7 +1934,7 @@
       };
       draftDone = true;
       clearTimeout(draftTimer);
-      await VF.remove('rascunhoCampanha');
+      campaignDraft = null;
       await VF.write('campanha:' + c.id, c);
       await VF.write('campanhas', [...(await VF.read('campanhas', [])), c.id]);
       // The first message goes out right away (doesn't wait for a previous campaign's interval)
