@@ -1633,6 +1633,8 @@
 
   async function newCampaignScreen(body, baseId) {
     const base = baseId ? await VF.read('campanha:' + baseId) : null;
+    // Unsent "new campaign" form is kept as a draft, so leaving the screen doesn't lose it
+    const draft = base ? null : await VF.read('rascunhoCampanha', null);
     const cfg = await VF.config();
     const manualTabs = tabs.filter((a) => a.tipo !== 'etiqueta');
     const tabOptions = (empty) => `<option value="">${empty}</option>` + manualTabs.map((a) => `<option value="${esc(a.id)}">${esc(a.nome)} (${(a.chats || []).length})</option>`).join('');
@@ -1645,7 +1647,7 @@
 
     body.innerHTML = `
       <div class="lat-titulo"><button class="icone-btn" id="voltar">${IC.voltar}</button><h2>Nova campanha</h2></div>
-      <label class="campo">Nome da campanha<input type="text" id="nome" placeholder="Ex.: Black November – leads de outubro" value="${esc(base ? base.nome + ' (2)' : '')}"></label>
+      <label class="campo">Nome da campanha<input type="text" id="nome" placeholder="Ex.: Black November – leads de outubro" value="${esc(base ? base.nome + ' (2)' : draft ? draft.nome || '' : '')}"></label>
 
       <div class="cartao"><h3><span class="passo">1</span>Para quem?</h3>
         <select id="origem">
@@ -1696,13 +1698,35 @@
     footerText(`<button class="btn sec" id="teste">Testar em mim</button><button class="btn" id="criar">${IC.play} Começar envio</button>`);
 
     const q = (s) => body.querySelector(s);
-    const editor = TemplatesEditor(q('#modelosCamp'), base && base.variacoes && base.variacoes.length ? base.variacoes : [base ? base.etapas : [{ tipo: 'texto', texto: '', espera: 2 }]]);
+    const initialTemplates = draft && draft.variacoes && draft.variacoes.length ? draft.variacoes : base && base.variacoes && base.variacoes.length ? base.variacoes : [base ? base.etapas : [{ tipo: 'texto', texto: '', espera: 2 }]];
+    const editor = TemplatesEditor(q('#modelosCamp'), initialTemplates);
     const qq = (s) => [...body.querySelectorAll(s)];
     let audience = null;
-    const selGroups = multiSelector(q('#origemGrupos'), groupOps, [], () => updateAudience(), 'Nenhuma escolhida ainda');
-    const selAdd = multiSelector(q('#addEtiq'), labelOps, [], null, '—');
-    const selRem = multiSelector(q('#remEtiq'), labelOps, [], null, '—');
+    const selGroups = multiSelector(q('#origemGrupos'), groupOps, [], () => (updateAudience(), saveDraftSoon()), 'Nenhuma escolhida ainda');
+    const selAdd = multiSelector(q('#addEtiq'), labelOps, [], () => saveDraftSoon(), '—');
+    const selRem = multiSelector(q('#remEtiq'), labelOps, [], () => saveDraftSoon(), '—');
     const selExcluded = multiSelector(q('#exclEtiq'), labelOps, [], () => updateAudience(), '—');
+
+    // Element refs are captured once: a detached form still holds its values, so a
+    // pending save works even after the user already switched screens.
+    const fields = Object.fromEntries(['nome', 'origem', 'origemLista', 'usarResp', 'addAba', 'remAba', 'respAba', 'respEtiq', 'minDias', 'maxDias', 'recente'].map((id) => [id, q('#' + id)]));
+    let draftTimer = null;
+    let draftDone = false;
+    function draftSnapshot() {
+      const v = Object.fromEntries(Object.entries(fields).map(([k, el]) => [k, el.value]));
+      return { ...v, grupos: selGroups.value(), addEtiquetas: selAdd.value(), removerEtiquetas: selRem.value(), excluirEtiquetas: selExcluded.value(), variacoes: editor.all(), em: Date.now() };
+    }
+    function saveDraftNow() {
+      clearTimeout(draftTimer);
+      if (base || draftDone) return;
+      VF.write('rascunhoCampanha', draftSnapshot());
+    }
+    function saveDraftSoon() {
+      if (base || draftDone) return;
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(saveDraftNow, 400);
+    }
+    body.onclick = saveDraftSoon; // property, not addEventListener: #corpo is reused by every screen
 
     if (base) {
       const a = base.acoes || {};
@@ -1717,6 +1741,21 @@
       if (o.tipo === 'aba' || o.tipo === 'etiqueta') selGroups.set([(o.tipo === 'aba' ? 'a:' : 'e:') + o.valor]);
       if (o.tipo === 'grupos') selGroups.set(o.valores || []);
       if (o.tipo) q('#origem').value = o.tipo === 'aba' || o.tipo === 'etiqueta' ? 'grupos' : o.tipo;
+    } else if (draft) {
+      for (const [k, el] of Object.entries(fields)) if (k !== 'nome' && draft[k] != null) el.value = draft[k];
+      selGroups.set(draft.grupos);
+      selAdd.set(draft.addEtiquetas);
+      selRem.set(draft.removerEtiquetas);
+      selExcluded.set(draft.excluirEtiquetas);
+      notify('Continuando a campanha que você estava montando.', 'info', 7000, {
+        texto: 'Começar do zero',
+        fn: async () => {
+          draftDone = true;
+          clearTimeout(draftTimer);
+          await VF.remove('rascunhoCampanha');
+          if (currentSection === 'envio' && view === 'nova') renderSidePanel();
+        },
+      });
     } else if (!labels.length && !manualTabs.length) {
       q('#origem').value = 'lista';
     }
@@ -1835,6 +1874,7 @@
       }, 400);
     }
     body.oninput = body.onchange = (e) => {
+      saveDraftSoon();
       if (e.target.closest('#modelosCamp') || e.target.id === 'nome' || e.target.id === 'usarResp') return;
       if (['addAba', 'remAba', 'respAba', 'respEtiq', 'recente', 'arquivoCSV'].includes(e.target.id)) return;
       updateAudience();
@@ -1845,8 +1885,9 @@
       if (s) return editor.set(stepsOfScript(s));
       const r = replies.find((x) => x.id === v);
       if (r) editor.set(r.etapas);
+      saveDraftSoon();
     };
-    q('#voltar').onclick = () => goTo(null);
+    q('#voltar').onclick = () => (saveDraftNow(), goTo(null));
     updateAudience();
 
     $('#teste').onclick = async () => {
@@ -1892,6 +1933,9 @@
         pularRecenteHoras: Number(q('#recente').value) || 0,
         contatos: audience.contatos,
       };
+      draftDone = true;
+      clearTimeout(draftTimer);
+      await VF.remove('rascunhoCampanha');
       await VF.write('campanha:' + c.id, c);
       await VF.write('campanhas', [...(await VF.read('campanhas', [])), c.id]);
       // The first message goes out right away (doesn't wait for a previous campaign's interval)
