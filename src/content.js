@@ -1898,12 +1898,15 @@
       clearTimeout(timer);
       timer = setTimeout(async () => {
         const target = q('#publico');
+        if (!target) return; // the user already left this screen
+        const estimateEl = q('#estimativa');
         target.textContent = 'Contando…';
         try {
           audience = await buildAudience();
+          if (!target.isConnected) return;
           if (!audience) {
             target.textContent = '';
-            q('#estimativa').textContent = '';
+            estimateEl.textContent = '';
             return;
           }
           const outside = audience.fora;
@@ -1911,7 +1914,7 @@
           const names = audience.contatos.slice(0, 5).map((c) => c.nome || VF.numberFromId(c.id) || c.id.split('@')[0]);
           target.innerHTML = `<b style="color:var(--verde-txt);font-size:14px">👥 ${audience.contatos.length} lead(s) vão receber</b>
             ${names.length ? `<div>${esc(names.join(', '))}${audience.contatos.length > 5 ? '…' : ''}</div>` : ''}${reasons.length ? `<div>Fora: ${reasons.join(', ')}</div>` : ''}`;
-          q('#estimativa').textContent = audience.contatos.length ? estimate(audience.contatos.length) : '';
+          estimateEl.textContent = audience.contatos.length ? estimate(audience.contatos.length) : '';
         } catch (e) {
           audience = null;
           target.innerHTML = `<span style="color:var(--vermelho)">${esc(e.message)}</span>`;
