@@ -55,13 +55,16 @@
 
   // Fake GoSeller server: tests can replace window.__fakeApi(msg) to answer API calls.
   window.__fakeApi = async () => ({ erro: 'Servidor não conectado' });
+  // "Relatar problema" goes to the background; here it's recorded in __reports
+  window.__reports = [];
+  window.__fakeReport = async (msg) => (window.__reports.push(msg), { id: 'A1B2C3' });
 
   window.chrome = {
     storage: { local, onChanged: { addListener: (fn) => changeListeners.push(fn) } },
     runtime: {
       getManifest: () => manifest,
       getURL: (p) => root + p,
-      sendMessage: async (msg) => (msg && msg.tipo === 'api' ? window.__fakeApi(msg) : undefined),
+      sendMessage: async (msg) => (msg && msg.tipo === 'api' ? window.__fakeApi(msg) : msg && msg.tipo === 'relato' ? window.__fakeReport(msg) : undefined),
       onMessage: { addListener: (fn) => messageListeners.push(fn) },
     },
   };

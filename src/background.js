@@ -78,9 +78,35 @@ async function callApi({ metodo: method, caminho: path, corpo: body }) {
     return { erro: 'Sem conexão com o servidor do GoSeller' };
   }
 }
+// "Relatar problema": works without a server key (the key, if any, links the report to the account)
+async function sendReport({ relato: report, anexo: attachment }) {
+  const { servidor: server = {} } = await chrome.storage.local.get('servidor');
+  const base = server.url || DEFAULT_SERVER;
+  const headers = { 'Content-Type': 'application/json' };
+  if (server.chave) headers.Authorization = 'Bearer ' + server.chave;
+  try {
+    const body = { ...report, anexo: attachment ? { nome: attachment.nome, mime: attachment.mime, tamanho: attachment.tamanho } : undefined };
+    const r = await fetch(base + '/relatos', { method: 'POST', headers, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) return { erro: j.erro || 'Erro ' + r.status };
+    if (attachment && j.anexoToken) {
+      const blob = await (await fetch(attachment.dataUrl)).blob();
+      const up = await fetch(base + '/relatos/' + j.id + '/anexo', { method: 'PUT', headers: { 'X-Anexo-Token': j.anexoToken, 'Content-Type': attachment.mime }, body: blob });
+      if (!up.ok) return { erro: 'O relato foi enviado (#' + j.id + '), mas o anexo não.' };
+    }
+    return { id: j.id };
+  } catch (e) {
+    return { erro: 'Sem conexão com o servidor do GoSeller' };
+  }
+}
+
 chrome.runtime.onMessage.addListener((msg, _sender, respond) => {
   if (msg && msg.tipo === 'api') {
     callApi(msg).then(respond);
+    return true;
+  }
+  if (msg && msg.tipo === 'relato') {
+    sendReport(msg).then(respond);
     return true;
   }
   return false;

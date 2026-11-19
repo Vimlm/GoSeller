@@ -7,6 +7,29 @@
   const esc = VF.esc;
 
   // =====================================================================
+  // Error log: last 50 errors, kept only on this computer (storage key 'logErros').
+  // Sent along with "Relatar problema". Phone numbers are masked (LGPD).
+  // =====================================================================
+  const ERROR_LOG_MAX = 50;
+  let errorLog = [];
+  let errorLogTimer = null;
+  VF.read('logErros', []).then((saved) => (errorLog = saved.concat(errorLog).slice(-ERROR_LOG_MAX)));
+  const maskNumbers = (text) => String(text).replace(/\d{8,}/g, (d) => d.slice(0, 5) + '****' + d.slice(-4));
+  function logError(source, message) {
+    errorLog.push({ em: Date.now(), origem: source, msg: maskNumbers(message).slice(0, 500) });
+    errorLog = errorLog.slice(-ERROR_LOG_MAX);
+    clearTimeout(errorLogTimer);
+    errorLogTimer = setTimeout(() => VF.write('logErros', errorLog), 1000);
+  }
+  const ownScript = (file) => String(file || '').startsWith(chrome.runtime.getURL(''));
+  window.addEventListener('error', (e) => ownScript(e.filename) && logError('codigo', `${e.message} (${String(e.filename).split('/').pop()}:${e.lineno})`));
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason;
+    if (r && r.stack && !ownScript((r.stack.match(/(chrome-extension:\/\/[^\s)]+)/) || [])[1])) return;
+    logError('codigo', (r && r.message) || String(r));
+  });
+
+  // =====================================================================
   // Talking to the page (page.js)
   // =====================================================================
   const pending = new Map();
@@ -17,9 +40,10 @@
       const id = ++seq;
       const limit = setTimeout(() => {
         pending.delete(id);
+        logError('whatsapp', `${fn}: sem resposta em 3 min`);
         reject(new Error('O WhatsApp não respondeu a tempo (' + fn + ')'));
       }, 180000);
-      pending.set(id, { resolve, reject, limite: limit });
+      pending.set(id, { resolve, reject, limite: limit, fn });
       window.postMessage({ canal: CHANNEL, de: 'extensao', id, fn, args }, ORIGIN);
     });
   }
@@ -34,6 +58,7 @@
       const p = pending.get(d.id);
       pending.delete(d.id);
       clearTimeout(p.limite);
+      if (d.erro) logError('whatsapp', `${p.fn}: ${d.erro}`);
       return d.erro ? p.reject(new Error(d.erro)) : p.resolve(d.resultado);
     }
     if (d.tipo !== 'evento') return;
@@ -355,6 +380,7 @@
     }
     $('#avisos').appendChild(el);
     setTimeout(() => el.remove(), ms);
+    if (type === 'erro') logError('aviso', text);
   }
   VF.notice = notify; // used by the message editor (steps-editor.js)
 
@@ -2983,7 +3009,11 @@
       <div class="secao-t">Planilha de contatos (CSV)</div>
       <div class="dica" style="margin-bottom:8px">Escolha etiquetas e/ou abas e baixe nome + telefone dos contatos. Abre no Excel e no Google Planilhas.</div>
       <div id="csvGrupos"></div>
-      <button class="btn sec peq" id="baixarCSV" style="margin-top:8px">📄 Baixar planilha</button>`;
+      <button class="btn sec peq" id="baixarCSV" style="margin-top:8px">📄 Baixar planilha</button>
+      <div class="secao-t">Ajuda</div>
+      <div class="dica" style="margin-bottom:8px">Algo deu errado? Conte o que aconteceu. Vão junto a versão do GoSeller, o sistema e os últimos erros (sem mensagens e com os números escondidos).</div>
+      <button class="btn sec peq" id="relatar">Relatar problema</button>
+      <div id="relatoCaixa"></div>`;
     footerText(`<button class="btn" id="salvar">Salvar configurações</button>`);
     const q = (s) => body.querySelector(s);
     $('#salvar').onclick = async () => {
@@ -3055,6 +3085,64 @@
         renderSidePanel();
       };
     }
+
+    // ---- "Relatar problema": description + optional print/video + automatic diagnostics ----
+    q('#relatar').onclick = () => {
+      const box = q('#relatoCaixa');
+      box.innerHTML = `<div class="cartao" style="margin-top:10px">
+        <label class="campo">O que aconteceu?<textarea id="relDescricao" placeholder="Ex.: a campanha parou no 12º lead e não voltou mais"></textarea></label>
+        <label class="campo">Print ou vídeo (opcional)<input type="file" id="relAnexo" accept="image/*,video/*"><small>Até 30 MB. O print pode mostrar conversas: envie só se não tiver problema.</small></label>
+        <div style="display:flex;gap:8px;margin-top:8px"><button class="btn peq" id="relEnviar">Enviar relato</button><button class="btn sec peq" id="relCancelar">Cancelar</button></div>
+        <div id="relResultado"></div></div>`;
+      q('#relCancelar').onclick = () => (box.innerHTML = '');
+      q('#relEnviar').onclick = async () => {
+        const description = q('#relDescricao').value.trim();
+        if (!description) return notify('Conte em poucas palavras o que aconteceu.', 'erro');
+        const file = q('#relAnexo').files[0];
+        if (file && file.size > 30 * 1024 * 1024) return notify('O arquivo passa de 30 MB. Grave um vídeo mais curto ou mande um print.', 'erro');
+        const button = q('#relEnviar');
+        button.disabled = true;
+        button.textContent = 'Enviando…';
+        try {
+          const [cfg, campaigns] = await Promise.all([VF.config(), readCampaigns()]);
+          const fmt = (e) => `${new Date(e.em).toLocaleString('pt-BR')} [${e.origem}] ${e.msg}`;
+          const report = {
+            descricao: description,
+            vendedor: cfg.nomeVendedor || '',
+            erros: errorLog.map(fmt),
+            info: {
+              versao: chrome.runtime.getManifest().version,
+              waJs: waState.versao || null,
+              navegador: navigator.userAgent,
+              sistema: (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform,
+              idioma: navigator.language,
+              tela: `${screen.width}x${screen.height}`,
+              janela: `${innerWidth}x${innerHeight}`,
+              whatsappConectado: !!waState.logado,
+              campanhasAtivas: campaigns.filter((c) => c.status === 'ativa').length,
+              servidorConectado: serverOn(),
+              abas: tabs.length,
+              respostas: replies.length,
+            },
+          };
+          const attachment = file ? { nome: file.name, mime: file.type, tamanho: file.size, dataUrl: await new Promise((ok, fail) => {
+            const r = new FileReader();
+            r.onload = () => ok(r.result);
+            r.onerror = () => fail(new Error('Não consegui ler o arquivo.'));
+            r.readAsDataURL(file);
+          }) } : null;
+          const r = await chrome.runtime.sendMessage({ tipo: 'relato', relato: report, anexo: attachment });
+          if (!r) throw new Error('A extensão não respondeu. Recarregue a página.');
+          if (r.erro) throw new Error(r.erro);
+          q('#relatoCaixa').innerHTML = `<div class="ok-box" style="margin-top:10px">Relato enviado! Código <b>#${esc(r.id)}</b>.<br>Passe esse código para quem cuida do GoSeller.</div>`;
+        } catch (e) {
+          button.disabled = false;
+          button.textContent = 'Enviar relato';
+          notify('Não consegui enviar o relato: ' + e.message, 'erro', 8000);
+        }
+      };
+      q('#relDescricao').focus();
+    };
 
     // One restore button: detects GoSeller backups and other supported extensions' backups on its own
     q('#restaurar').onchange = async (e) => {
@@ -3711,6 +3799,7 @@
         engine.falhasSeguidas = 0;
         notify('⚠️ ' + extras.motivo, 'erro', 12000);
       }
+      logError('campanha', `${campaign.nome}: ${e.message}`);
       await saveContact(campaign.id, i, { status: 'falhou', erro: e.message, em: Date.now() }, extras);
       engine.proximoEm = Date.now() + VF.random(cfg.intervaloMin, cfg.intervaloMax) * 1000;
       await VF.write('motor', engine);
