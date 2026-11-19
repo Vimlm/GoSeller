@@ -17,4 +17,22 @@ module.exports = {
     h.equal(sent[0].id, '5511999990003@c.us', 'sent to the pasted number');
     h.equal(sent[0].text, 'Oi Ana, tudo bem?', 'variables were filled');
   },
+
+  async 'finishes right after the last lead (no extra wait)'(h) {
+    await h.setStorage({ config: { usarHorario: false, simularDigitacao: false, intervaloMin: 40, intervaloMax: 120 } });
+    await h.click('#trilho [data-abrir="envio"]');
+    await h.click('#nova');
+    await h.type('#origem', 'lista');
+    await h.type('#origemLista', '5511999990003;Ana');
+    await h.type('#modelosCamp textarea[data-campo="texto"]', 'Oi!');
+    await h.sleep(600);
+    await h.click('#criar');
+    await h.dialog('Começar envio');
+    await h.waitUntil(() => window.__sent.length > 0, 'message sent', 15000);
+    // the engine ticks every 15s; before the fix it waited the 40–120s interval before finishing
+    await h.waitUntil(() => {
+      const st = JSON.parse(localStorage.getItem('goseller-test-storage'));
+      return (st.campanhas || []).some((id) => st['campanha:' + id].status === 'concluida');
+    }, 'campaign concluded', 20000);
+  },
 };

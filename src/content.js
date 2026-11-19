@@ -3682,15 +3682,11 @@
       const todayCount = await VF.sentToday();
       if (todayCount >= cfg.limiteDia) return saveStatus({ ...base, texto: `✋ Limite do dia (${todayCount}/${cfg.limiteDia}) — continua amanhã`, tipo: 'aguardando' });
 
-      const engine = await VF.read('motor', { proximoEm: 0, noLote: 0, falhasSeguidas: 0 });
-      if (Date.now() < engine.proximoEm) {
-        return saveStatus({ ...base, texto: `${campaign.nome}: ${done}/${base.total}`, tipo: 'enviando', proximoEm: engine.proximoEm });
-      }
-
       // Contact interrupted midway (tab closed during sending): don't resend to avoid duplicates
       const interrupted = campaign.contatos.findIndex((x) => x.status === 'enviando');
       if (interrupted >= 0) await saveContact(campaign.id, interrupted, { status: 'falhou', erro: 'Envio interrompido (confira a conversa)', em: Date.now() });
 
+      // Nobody left in the queue: finish right away (don't wait for the interval meant for a next lead)
       const i = campaign.contatos.findIndex((x) => x.status === 'pendente');
       if (i < 0) {
         const c = await VF.read('campanha:' + campaign.id);
@@ -3701,6 +3697,11 @@
         if (n.enviado) notify(`✅ Campanha "${c.nome}" concluída: ${n.enviado} enviados${n.pulado + n.falhou ? `, ${n.pulado + n.falhou} pulados/falhas` : ''}.`, 'ok', 10000);
         else notify(`⚠️ Campanha "${c.nome}" terminou sem enviar nenhuma mensagem. Abra a campanha para ver o motivo.`, 'erro', 12000);
         return saveStatus({ texto: 'Envio em massa', tipo: 'parado' });
+      }
+
+      const engine = await VF.read('motor', { proximoEm: 0, noLote: 0, falhasSeguidas: 0 });
+      if (Date.now() < engine.proximoEm) {
+        return saveStatus({ ...base, texto: `${campaign.nome}: ${done}/${base.total}`, tipo: 'enviando', proximoEm: engine.proximoEm });
       }
       await processContact(campaign, i, cfg, engine, base);
     } catch (e) {
